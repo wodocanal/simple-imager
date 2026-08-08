@@ -8,6 +8,7 @@ BUILD_DIR="$PROJECT_DIR/.build/app"
 APP_PATH="$PROJECT_DIR/.build/SD Архиватор.app"
 CONTENTS_PATH="$APP_PATH/Contents"
 MACOS_PATH="$CONTENTS_PATH/MacOS"
+RESOURCES_PATH="$CONTENTS_PATH/Resources"
 BINARY_PATH="$BUILD_DIR/SDCardCopy"
 SYSTEM_SWIFT_ROOT="/Library/Developer/CommandLineTools/usr"
 LOCAL_TOOLCHAIN="$PROJECT_DIR/.build/toolchain/usr"
@@ -38,9 +39,10 @@ swiftc \
 if [[ -d "$APP_PATH" ]]; then
     rm -r "$APP_PATH"
 fi
-mkdir -p "$MACOS_PATH"
+mkdir -p "$MACOS_PATH" "$RESOURCES_PATH"
 cp "$BINARY_PATH" "$MACOS_PATH/SDCardCopy"
 cp "$PROJECT_DIR/Resources/Info.plist" "$CONTENTS_PATH/Info.plist"
+cp "$PROJECT_DIR/Resources/AppIcon.icns" "$RESOURCES_PATH/AppIcon.icns"
 chmod 755 "$MACOS_PATH/SDCardCopy"
 /usr/bin/codesign --force --deep --sign - "$APP_PATH"
 

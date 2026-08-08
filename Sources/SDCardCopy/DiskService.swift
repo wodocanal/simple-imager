@@ -64,6 +64,11 @@ enum DiskService {
         _ = try? CommandRunner.requireSuccess(diskutil, ["mountDisk", disk.devicePath])
     }
 
+    @discardableResult
+    static func eject(_ disk: DiskInfo) -> Bool {
+        (try? CommandRunner.requireSuccess(diskutil, ["eject", disk.devicePath])) != nil
+    }
+
     static func isWholeDiskIdentifier(_ value: String) -> Bool {
         value.range(of: #"^disk[0-9]+$"#, options: .regularExpression) != nil
     }

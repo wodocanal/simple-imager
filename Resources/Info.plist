@@ -10,6 +10,8 @@
     <string>SDCardCopy</string>
     <key>CFBundleIdentifier</key>
     <string>local.sd-card-copy</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon.icns</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
@@ -26,6 +28,10 @@
     <string>13.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSRemovableVolumesUsageDescription</key>
+    <string>Приложению нужен доступ к внешним накопителям для создания и восстановления образов.</string>
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>Приложению нужен доступ к выбранной папке для сохранения образа накопителя.</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
 </dict>

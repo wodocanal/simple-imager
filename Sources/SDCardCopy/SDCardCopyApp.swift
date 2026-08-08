@@ -16,9 +16,10 @@ struct SDCardCopyApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .frame(minWidth: 760, minHeight: 650)
+                .frame(width: 720, height: 495)
         }
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unifiedCompact)
+        .windowResizability(.contentSize)
     }
 }

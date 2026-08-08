@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="background" x1="110" y1="80" x2="900" y2="960" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#36445b"/>
+      <stop offset="0.48" stop-color="#283140"/>
+      <stop offset="1" stop-color="#1d2638"/>
+    </linearGradient>
+    <linearGradient id="symbol" x1="270" y1="210" x2="790" y2="830" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#edf1fa"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="370" y1="340" x2="760" y2="790" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#367cff"/>
+      <stop offset="1" stop-color="#6657e8"/>
+    </linearGradient>
+    <filter id="symbolShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#0d1320" flood-opacity="0.32"/>
+    </filter>
+    <clipPath id="tileClip">
+      <rect x="28" y="28" width="968" height="968" rx="218"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#tileClip)">
+    <rect x="28" y="28" width="968" height="968" fill="url(#background)"/>
+    <path d="M-20 155 C245 13 507 33 770 79 C884 99 974 151 1048 226 V28 H-20 Z"
+          fill="#71809a" opacity="0.09"/>
+
+    <g filter="url(#symbolShadow)">
+      <path d="M282 214 H438 L282 370 Z" fill="url(#symbol)"/>
+      <path d="M480 214 H759 Q782 214 782 237 V806 Q782 829 759 829 H303 Q280 829 280 806 V406 L480 214 Z"
+            fill="none" stroke="url(#symbol)" stroke-width="42" stroke-linejoin="round"/>
+
+      <path d="M380 424 V470 M441 365 V470 M502 314 V470 M563 314 V470 M624 314 V470 M685 314 V470"
+            fill="none" stroke="url(#symbol)" stroke-width="39" stroke-linecap="square"/>
+    </g>
+
+    <path d="M478 237 H758 V806 H303 V414"
+          fill="none" stroke="url(#accent)" stroke-width="5" stroke-linejoin="round" opacity="0.9"/>
+  </g>
+</svg>

@@ -18,50 +18,66 @@ struct DiskInfo: Identifiable, Hashable, Codable {
     }
 }
 
-enum CaptureMode: String, Codable, CaseIterable, Identifiable {
-    case compact
-    case compatible
+enum ImageProcessingMode: String, Codable, CaseIterable, Identifiable {
+    case exact
+    case optimizeFreeSpace
+    case shrinkExt
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .compact: "Компактный"
-        case .compatible: "Совместимый"
+        case .exact: "Без изменений"
+        case .optimizeFreeSpace: "Обнулить пустоты"
+        case .shrinkExt: "Уменьшить образ"
         }
     }
 
     var explanation: String {
         switch self {
-        case .compact:
-            "Неиспользуемые кластеры FAT32/exFAT превращаются в нули в потоке образа. Исходная карта не изменяется."
-        case .compatible:
-            "Читается каждый сектор карты. Свободное место сожмется только в том случае, если в нем уже находятся нули."
+        case .exact:
+            "Каждый сектор сохраняется без изменений, включая содержимое свободного места."
+        case .optimizeFreeSpace:
+            "Неиспользуемые кластеры FAT32/exFAT превращаются в нули. Несжатые образы сохраняются разреженными и занимают меньше места на диске."
+        case .shrinkExt:
+            "Последний основной раздел ext2/3/4 и логический размер MBR-образа уменьшаются, а свободные блоки зануляются."
+        }
+    }
+
+    var optimizesFreeSpace: Bool { self == .optimizeFreeSpace }
+    var shrinksExt: Bool { self == .shrinkExt }
+}
+
+enum RestoreSourceKind: String, CaseIterable, Identifiable {
+    case file
+    case url
+    case drive
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .file: "Из файла"
+        case .url: "По URL"
+        case .drive: "Клонировать"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .file: "doc.fill"
+        case .url: "link"
+        case .drive: "externaldrive.fill.badge.plus"
         }
     }
 }
 
-struct ImageManifest: Codable {
-    static let currentFormatVersion = 1
-
-    let formatVersion: Int
-    let createdAt: Date
-    let sourceDevice: String
-    let sourceMediaName: String
-    let sourceSize: UInt64
-    let imageFileName: String
-    let compression: String
-    let compressionLevel: Int
-    let sha256: String
-    let captureMode: CaptureMode
-    let compactedFileSystems: [String]
-    let rawPartitions: [String]
-}
-
 enum JobPhase: String, Codable {
     case preparing
+    case downloading
     case analyzing
     case reading
+    case shrinking
     case verifyingArchive
     case writing
     case verifyingCard
@@ -73,10 +89,12 @@ enum JobPhase: String, Codable {
     var title: String {
         switch self {
         case .preparing: "Подготовка"
+        case .downloading: "Загрузка образа"
         case .analyzing: "Анализ разделов"
-        case .reading: "Чтение и сжатие"
-        case .verifyingArchive: "Проверка архива"
-        case .writing: "Запись карты"
+        case .reading: "Создание образа"
+        case .shrinking: "Уменьшение образа"
+        case .verifyingArchive: "Проверка образа"
+        case .writing: "Запись образа"
         case .verifyingCard: "Проверка записи"
         case .finalizing: "Завершение"
         case .completed: "Готово"
@@ -106,8 +124,8 @@ enum OperationKind: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .create: "Создать образ"
-        case .restore: "Записать карту"
+        case .create: "Считать образ"
+        case .restore: "Записать образ"
         }
     }
 }

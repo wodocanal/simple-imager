@@ -3,15 +3,22 @@ import Foundation
 final class ProgressReporter {
     let progressURL: URL
     let cancelURL: URL
+    let skipVerificationURL: URL?
     private var lastWrite = Date.distantPast
 
-    init(progressURL: URL, cancelURL: URL) {
+    init(progressURL: URL, cancelURL: URL, skipVerificationURL: URL? = nil) {
         self.progressURL = progressURL
         self.cancelURL = cancelURL
+        self.skipVerificationURL = skipVerificationURL
     }
 
     var isCancelled: Bool {
         FileManager.default.fileExists(atPath: cancelURL.path)
+    }
+
+    var shouldSkipVerification: Bool {
+        guard let skipVerificationURL else { return false }
+        return FileManager.default.fileExists(atPath: skipVerificationURL.path)
     }
 
     func update(

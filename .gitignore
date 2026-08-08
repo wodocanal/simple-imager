@@ -1,0 +1,6 @@
+.build/
+.swiftpm/
+.DS_Store
+*.partial-*
+*.sdimg.zst
+*.sdimg.zst.json

@@ -35,11 +35,6 @@ enum PrivilegedHelperLauncher {
         }
     }
 
-    static func zstdPath() -> String? {
-        ["/opt/homebrew/bin/zstd", "/usr/local/bin/zstd", "/usr/bin/zstd"]
-            .first { FileManager.default.isExecutableFile(atPath: $0) }
-    }
-
     private static func shellQuote(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }

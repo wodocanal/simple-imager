@@ -70,12 +70,7 @@ final class RandomAccessReader {
               UInt64(count) <= size - offset else {
             throw AppError.archiveInvalid("Структура раздела выходит за границы диска.")
         }
-        try handle.seek(toOffset: offset)
-        let data = try handle.read(upToCount: count) ?? Data()
-        guard data.count == count else {
-            throw AppError.archiveInvalid("Не удалось полностью прочитать структуру файловой системы.")
-        }
-        return data
+        return try PosixIO.readExact(from: handle, offset: offset, count: count)
     }
 }
 
