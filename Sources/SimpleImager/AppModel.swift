@@ -362,7 +362,7 @@ final class AppModel: ObservableObject {
 
         let files = prepareJobFiles()
         let downloadedURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("sd-card-copy-\(UUID().uuidString).remote")
+            .appendingPathComponent("simple-imager-\(UUID().uuidString).remote")
         temporaryRemoteImageURL = downloadedURL
         isWorking = true
         errorMessage = nil
@@ -428,9 +428,9 @@ final class AppModel: ObservableObject {
         let jobID = UUID().uuidString
         let directory = FileManager.default.temporaryDirectory
         let files = JobFiles(
-            progressURL: directory.appendingPathComponent("sd-card-copy-\(jobID).progress.json"),
-            cancelURL: directory.appendingPathComponent("sd-card-copy-\(jobID).cancel"),
-            skipVerificationURL: directory.appendingPathComponent("sd-card-copy-\(jobID).skip-verification")
+            progressURL: directory.appendingPathComponent("simple-imager-\(jobID).progress.json"),
+            cancelURL: directory.appendingPathComponent("simple-imager-\(jobID).cancel"),
+            skipVerificationURL: directory.appendingPathComponent("simple-imager-\(jobID).skip-verification")
         )
         progressURL = files.progressURL
         cancelURL = files.cancelURL

@@ -8,7 +8,7 @@ enum PosixIOSmokeError: Error {
 struct PosixIOSmoke {
     static func main() throws {
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("sd-card-copy-posix-\(UUID().uuidString)")
+            .appendingPathComponent("simple-imager-posix-\(UUID().uuidString)")
         _ = FileManager.default.createFile(atPath: url.path, contents: nil)
         defer { try? FileManager.default.removeItem(at: url) }
 

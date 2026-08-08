@@ -72,7 +72,7 @@ struct ContentView: View {
     private var topBar: some View {
         ZStack {
             HStack {
-                Text("DRIVE IMAGE")
+                Text("SIMPLE IMAGER")
                     .font(.custom("Avenir Next Demi Bold", size: 10))
                     .tracking(1.2)
                     .foregroundStyle(primaryText)

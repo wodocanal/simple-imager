@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 @main
-struct SDCardCopyApp: App {
+struct SimpleImagerApp: App {
     init() {
         let arguments = Array(CommandLine.arguments.dropFirst())
         if arguments.first == "--helper" {

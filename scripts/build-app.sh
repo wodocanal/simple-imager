@@ -5,11 +5,11 @@ set -euo pipefail
 SCRIPT_DIR="${0:A:h}"
 PROJECT_DIR="${SCRIPT_DIR:h}"
 BUILD_DIR="$PROJECT_DIR/.build/app"
-APP_PATH="$PROJECT_DIR/.build/SD Архиватор.app"
+APP_PATH="$PROJECT_DIR/.build/Simple Imager.app"
 CONTENTS_PATH="$APP_PATH/Contents"
 MACOS_PATH="$CONTENTS_PATH/MacOS"
 RESOURCES_PATH="$CONTENTS_PATH/Resources"
-BINARY_PATH="$BUILD_DIR/SDCardCopy"
+BINARY_PATH="$BUILD_DIR/SimpleImager"
 SYSTEM_SWIFT_ROOT="/Library/Developer/CommandLineTools/usr"
 LOCAL_TOOLCHAIN="$PROJECT_DIR/.build/toolchain/usr"
 
@@ -29,7 +29,7 @@ swiftc \
     "${RESOURCE_ARGUMENTS[@]}" \
     -warnings-as-errors \
     -parse-as-library \
-    "$PROJECT_DIR"/Sources/SDCardCopy/*.swift \
+    "$PROJECT_DIR"/Sources/SimpleImager/*.swift \
     -o "$BINARY_PATH" \
     -framework SwiftUI \
     -framework AppKit \
@@ -40,10 +40,10 @@ if [[ -d "$APP_PATH" ]]; then
     rm -r "$APP_PATH"
 fi
 mkdir -p "$MACOS_PATH" "$RESOURCES_PATH"
-cp "$BINARY_PATH" "$MACOS_PATH/SDCardCopy"
+cp "$BINARY_PATH" "$MACOS_PATH/SimpleImager"
 cp "$PROJECT_DIR/Resources/Info.plist" "$CONTENTS_PATH/Info.plist"
 cp "$PROJECT_DIR/Resources/AppIcon.icns" "$RESOURCES_PATH/AppIcon.icns"
-chmod 755 "$MACOS_PATH/SDCardCopy"
+chmod 755 "$MACOS_PATH/SimpleImager"
 /usr/bin/codesign --force --deep --sign - "$APP_PATH"
 
 echo "Создано приложение: $APP_PATH"

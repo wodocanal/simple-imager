@@ -3,22 +3,22 @@
 import PackageDescription
 
 let package = Package(
-    name: "SDCardCopy",
+    name: "SimpleImager",
     platforms: [
         .macOS(.v13)
     ],
     products: [
-        .executable(name: "SDCardCopy", targets: ["SDCardCopy"])
+        .executable(name: "SimpleImager", targets: ["SimpleImager"])
     ],
     targets: [
         .executableTarget(
-            name: "SDCardCopy",
-            path: "Sources/SDCardCopy"
+            name: "SimpleImager",
+            path: "Sources/SimpleImager"
         ),
         .testTarget(
-            name: "SDCardCopyTests",
-            dependencies: ["SDCardCopy"],
-            path: "Tests/SDCardCopyTests"
+            name: "SimpleImagerTests",
+            dependencies: ["SimpleImager"],
+            path: "Tests/SimpleImagerTests"
         )
     ]
 )

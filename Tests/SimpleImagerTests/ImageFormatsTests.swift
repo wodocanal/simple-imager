@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-@testable import SDCardCopy
+@testable import SimpleImager
 
 final class ImageFormatsTests: XCTestCase {
     func testEverySupportedCombinationRoundTripsThroughFileName() throws {

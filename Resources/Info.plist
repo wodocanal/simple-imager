@@ -5,17 +5,17 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>ru</string>
     <key>CFBundleDisplayName</key>
-    <string>SD Архиватор</string>
+    <string>Simple Imager</string>
     <key>CFBundleExecutable</key>
-    <string>SDCardCopy</string>
+    <string>SimpleImager</string>
     <key>CFBundleIdentifier</key>
-    <string>local.sd-card-copy</string>
+    <string>local.simple-imager</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon.icns</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>SD Архиватор</string>
+    <string>Simple Imager</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

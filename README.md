@@ -1,4 +1,4 @@
-# SD Архиватор
+# Simple Imager
 
 Небольшое нативное macOS-приложение для создания образов внешних накопителей и их восстановления.
 
@@ -43,7 +43,7 @@ Docker и PiShrink не требуются.
 
 ```bash
 zsh scripts/build-app.sh
-open ".build/SD Архиватор.app"
+open ".build/Simple Imager.app"
 ```
 
 Скрипт собирает обычный macOS `.app` и подписывает его локальной ad-hoc подписью. `Package.swift` также можно открыть в Xcode и запускать оттуда.
@@ -57,7 +57,7 @@ open ".build/SD Архиватор.app"
 ```bash
 zsh scripts/build-icon.sh "/путь/к/новой-иконке.svg"
 zsh scripts/build-app.sh
-ditto ".build/SD Архиватор.app" "/Applications/SD Архиватор.app"
+ditto ".build/Simple Imager.app" "/Applications/Simple Imager.app"
 ```
 
 Первый скрипт копирует новый SVG в проект и автоматически создает все размеры от 16 до 1024 пикселей. После установки приложение нужно перезапустить; Finder или Dock иногда обновляют закэшированную иконку с небольшой задержкой.

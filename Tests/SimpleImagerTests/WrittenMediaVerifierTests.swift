@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 import XCTest
-@testable import SDCardCopy
+@testable import SimpleImager
 
 final class WrittenMediaVerifierTests: XCTestCase {
     func testVerifiesMatchingData() throws {

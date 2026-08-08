@@ -5,7 +5,7 @@ import Foundation
 enum SparseImageSmoke {
     static func main() throws {
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("sd-card-copy-sparse-\(UUID().uuidString).img")
+            .appendingPathComponent("simple-imager-sparse-\(UUID().uuidString).img")
         _ = FileManager.default.createFile(atPath: url.path, contents: nil)
         defer { try? FileManager.default.removeItem(at: url) }
 

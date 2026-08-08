@@ -16,7 +16,7 @@ if [[ "${SOURCE_ICON:A}" != "${MASTER_ICON:A}" ]]; then
     cp "$SOURCE_ICON" "$MASTER_ICON"
 fi
 
-WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/sd-card-copy-icon.XXXXXX")"
+WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/simple-imager-icon.XXXXXX")"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
 RASTER_ICON="$WORK_DIR/AppIcon.png"

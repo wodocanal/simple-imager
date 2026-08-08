@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-@testable import SDCardCopy
+@testable import SimpleImager
 
 final class CompactImageAnalyzerTests: XCTestCase {
     func testFAT32PlanZerosOnlyFreeClusters() throws {
@@ -47,7 +47,7 @@ final class CompactImageAnalyzerTests: XCTestCase {
 
     private func analyze(_ disk: Data) throws -> CompactPlan {
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("sd-card-copy-test-\(UUID().uuidString).img")
+            .appendingPathComponent("simple-imager-test-\(UUID().uuidString).img")
         try disk.write(to: url)
         defer { try? FileManager.default.removeItem(at: url) }
         let handle = try FileHandle(forReadingFrom: url)
