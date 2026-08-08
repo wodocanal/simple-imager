@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 
 @MainActor
 final class AppModel: ObservableObject {
+    private static let firstLaunchCompletedKey = "firstLaunchCompleted.v1"
     private static let ejectAfterCreateKey = "ejectAfterCreate"
     private static let ejectAfterRestoreKey = "ejectAfterRestore"
     private static let autoExpandShrunkExtKey = "autoExpandShrunkExt"
@@ -14,9 +15,12 @@ final class AppModel: ObservableObject {
     @Published var sourceDiskID: String?
     @Published var restoreSourceKind: RestoreSourceKind = .file
     @Published var remoteURLText = ""
-    @Published var processingMode: ImageProcessingMode = .optimizeFreeSpace
+    @Published var processingMode: ImageProcessingMode = .exact
     @Published var rawImageType: RawImageType = .img
-    @Published var imageCompression: ImageCompression = .zstd
+    @Published var imageCompression: ImageCompression = .none
+    @Published var language: AppLanguage = L10n.language {
+        didSet { L10n.configure(language) }
+    }
     @Published var autoExpandShrunkExt: Bool = UserDefaults.standard.object(
         forKey: AppModel.autoExpandShrunkExtKey
     ) as? Bool ?? true {
@@ -39,6 +43,8 @@ final class AppModel: ObservableObject {
     @Published var isWorking = false
     @Published var progress: JobProgress?
     @Published var errorMessage: String?
+    @Published var showsFirstLaunch: Bool
+    @Published var runtimeReadiness: RuntimeReadinessReport
 
     private var progressURL: URL?
     private var cancelURL: URL?
@@ -113,21 +119,57 @@ final class AppModel: ObservableObject {
         }
         guard let compression, !compression.isAvailable(for: direction) else { return nil }
         if let hint = compression.installHint {
-            return "Для \(compression.title) требуется: \(hint)"
+            return L10n.choose(
+                english: "\(compression.title) requires: \(hint)",
+                russian: "Для \(compression.title) требуется: \(hint)"
+            )
         }
-        return "На этом Mac недоступен инструмент для \(compression.title)."
+        return L10n.choose(
+            english: "The tool required for \(compression.title) is unavailable on this Mac.",
+            russian: "На этом Mac недоступен инструмент для \(compression.title)."
+        )
     }
 
     var needsFullDiskAccess: Bool {
         let message = errorMessage ?? progress?.message ?? ""
-        return message.contains("Полный доступ к диску")
+        return message.contains("Полный доступ к диску") || message.contains("Full Disk Access")
     }
 
     init() {
+        runtimeReadiness = RuntimeEnvironment.audit()
+        showsFirstLaunch = !UserDefaults.standard.bool(forKey: AppModel.firstLaunchCompletedKey)
+        L10n.configure(language)
         if CommandLine.arguments.contains("--restore") {
             operation = .restore
         }
         Task { await refreshDisks() }
+    }
+
+    func refreshRuntimeReadiness() {
+        runtimeReadiness = RuntimeEnvironment.audit()
+    }
+
+    func completeFirstLaunch() {
+        refreshRuntimeReadiness()
+        guard runtimeReadiness.isReady else { return }
+        UserDefaults.standard.set(true, forKey: AppModel.firstLaunchCompletedKey)
+        showsFirstLaunch = false
+    }
+
+    func showFirstLaunch() {
+        refreshRuntimeReadiness()
+        showsFirstLaunch = true
+    }
+
+    func openThirdPartyLicenses() {
+        guard let url = RuntimeEnvironment.thirdPartyLicensesURL() else {
+            errorMessage = L10n.choose(
+                english: "The license file is missing. Reinstall the application.",
+                russian: "Файл лицензий не найден. Переустановите приложение."
+            )
+            return
+        }
+        NSWorkspace.shared.open(url)
     }
 
     func refreshDisks() async {
@@ -157,8 +199,8 @@ final class AppModel: ObservableObject {
 
     func chooseOutputDirectory() {
         let panel = NSOpenPanel()
-        panel.title = "Выберите папку для образа"
-        panel.prompt = "Выбрать папку"
+        panel.title = L10n.choose(english: "Select an image folder", russian: "Выберите папку для образа")
+        panel.prompt = L10n.choose(english: "Select Folder", russian: "Выбрать папку")
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
@@ -184,13 +226,16 @@ final class AppModel: ObservableObject {
 
     func chooseExistingImage() {
         let panel = NSOpenPanel()
-        panel.title = "Выберите образ накопителя"
+        panel.title = L10n.choose(english: "Select a drive image", russian: "Выберите образ накопителя")
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.data]
         guard panel.runModal() == .OK, let url = panel.url else { return }
         guard let format = ImageFileFormat.detect(url: url) else {
-            errorMessage = "Поддерживаются IMG, RAW и DD без сжатия или в форматах ZSTD, GZIP, XZ, BZIP2, LZ4, ZIP и 7Z."
+            errorMessage = L10n.choose(
+                english: "Supported formats are IMG, RAW, and DD, uncompressed or compressed with ZSTD, GZIP, XZ, BZIP2, LZ4, ZIP, or 7Z.",
+                russian: "Поддерживаются IMG, RAW и DD без сжатия или в форматах ZSTD, GZIP, XZ, BZIP2, LZ4, ZIP и 7Z."
+            )
             progress = nil
             return
         }
@@ -301,7 +346,7 @@ final class AppModel: ObservableObject {
     private func startFileRestore(to disk: DiskInfo) {
         guard let imageURL,
               let format = ImageFileFormat.detect(url: imageURL) else {
-            errorMessage = "Не удалось определить формат выбранного образа."
+            errorMessage = L10n.choose(english: "Could not detect the selected image format.", russian: "Не удалось определить формат выбранного образа.")
             return
         }
         guard format.compression.isAvailable(for: .decode) else {
@@ -328,11 +373,11 @@ final class AppModel: ObservableObject {
     private func startDriveClone(to disk: DiskInfo) {
         guard let source = selectedSourceDisk,
               source.identifier != disk.identifier else {
-            errorMessage = "Выберите разные исходный и целевой носители."
+            errorMessage = L10n.choose(english: "Select different source and target drives.", russian: "Выберите разные исходный и целевой носители.")
             return
         }
         guard source.size <= disk.size else {
-            errorMessage = "Целевой носитель должен быть не меньше исходного."
+            errorMessage = L10n.choose(english: "The target drive must be at least as large as the source.", russian: "Целевой носитель должен быть не меньше исходного.")
             return
         }
         guard confirmDestructiveRestore(to: disk) else { return }
@@ -349,6 +394,9 @@ final class AppModel: ObservableObject {
             "--source-device", source.identifier,
             "--source-expected-size", String(source.size),
             "--source-expected-media-name", source.mediaName,
+            "--source-expected-registry-id", String(source.registryEntryID),
+            "--source-expected-registry-path", source.registryPath,
+            "--source-expected-serial", source.serialNumber ?? "",
             "--skip-verification", files.skipVerificationURL.path
         ]
         beginPrivilegedJob(arguments: arguments, files: files)
@@ -356,10 +404,9 @@ final class AppModel: ObservableObject {
 
     private func startRemoteRestore(to disk: DiskInfo) {
         guard let remoteURL = RemoteImageDownloader.validatedURL(from: remoteURLText) else {
-            errorMessage = "Введите прямую HTTP- или HTTPS-ссылку на файл образа."
+            errorMessage = L10n.choose(english: "Enter a direct HTTP or HTTPS URL to an image file.", russian: "Введите прямую HTTP- или HTTPS-ссылку на файл образа.")
             return
         }
-
         let files = prepareJobFiles()
         let downloadedURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("simple-imager-\(UUID().uuidString).remote")
@@ -370,7 +417,7 @@ final class AppModel: ObservableObject {
             phase: .downloading,
             processedBytes: 0,
             totalBytes: 0,
-            message: "Скачиваем образ по URL…"
+            message: L10n.text("Скачиваем образ по URL…")
         )
 
         Task {
@@ -385,18 +432,25 @@ final class AppModel: ObservableObject {
                 guard result.format.compression.isAvailable(for: .decode) else {
                     if let hint = result.format.compression.installHint {
                         throw AppError.invalidArguments(
-                            "Для \(result.format.compression.title) требуется: \(hint)"
+                            L10n.choose(english: "\(result.format.compression.title) requires: \(hint)", russian: "Для \(result.format.compression.title) требуется: \(hint)")
                         )
                     }
                     throw AppError.invalidArguments(
-                        "На этом Mac недоступен инструмент для \(result.format.compression.title)."
+                        L10n.choose(english: "The tool required for \(result.format.compression.title) is unavailable on this Mac.", russian: "На этом Mac недоступен инструмент для \(result.format.compression.title).")
                     )
                 }
                 try checkCancellation(at: files.cancelURL)
+                progress = JobProgress(
+                    phase: .preparing,
+                    processedBytes: 0,
+                    totalBytes: 0,
+                    message: L10n.text("Образ полностью загружен. Подтвердите целевой накопитель.")
+                )
                 guard confirmDestructiveRestore(to: disk) else {
-                    throw AppError.cancelled
+                    finishJob()
+                    await refreshDisks()
+                    return
                 }
-
                 var arguments = baseArguments(
                     action: .restore,
                     disk: disk,
@@ -412,7 +466,7 @@ final class AppModel: ObservableObject {
                     phase: .preparing,
                     processedBytes: 0,
                     totalBytes: 0,
-                    message: "Ожидаем подтверждение администратора…"
+                    message: L10n.text("Ожидаем подтверждение администратора…")
                 )
                 beginMonitoringProgress(at: files.progressURL)
                 await performPrivilegedJob(arguments: arguments, files: files)
@@ -452,6 +506,9 @@ final class AppModel: ObservableObject {
             "--device", disk.identifier,
             "--expected-size", String(disk.size),
             "--expected-media-name", disk.mediaName,
+            "--expected-registry-id", String(disk.registryEntryID),
+            "--expected-registry-path", disk.registryPath,
+            "--expected-serial", disk.serialNumber ?? "",
             "--progress", files.progressURL.path,
             "--cancel", files.cancelURL.path,
             "--raw-type", format.rawType.rawValue,
@@ -467,7 +524,7 @@ final class AppModel: ObservableObject {
             phase: .preparing,
             processedBytes: 0,
             totalBytes: 0,
-            message: "Ожидаем подтверждение администратора…"
+            message: L10n.text("Ожидаем подтверждение администратора…")
         )
         beginMonitoringProgress(at: files.progressURL)
         Task { await performPrivilegedJob(arguments: arguments, files: files) }
@@ -490,7 +547,7 @@ final class AppModel: ObservableObject {
                 phase: .cancelled,
                 processedBytes: 0,
                 totalBytes: 0,
-                message: "Операция отменена."
+                message: L10n.text("Операция отменена.")
             )
             errorMessage = nil
             return
@@ -520,15 +577,44 @@ final class AppModel: ObservableObject {
 
     func cancel() {
         guard isWorking, let cancelURL else { return }
+        if operation == .restore, progress?.phase == .writing, !confirmUnsafeCancellation() {
+            return
+        }
+        signalCancellation(at: cancelURL)
+    }
+
+    func prepareForTermination() {
+        guard isWorking else { return }
+        if progress?.phase == .verifyingCard {
+            skipVerification()
+        } else if let cancelURL {
+            signalCancellation(at: cancelURL)
+        }
+    }
+
+    private func signalCancellation(at cancelURL: URL) {
         try? Data("cancel".utf8).write(to: cancelURL, options: .atomic)
         if let current = progress {
             progress = JobProgress(
                 phase: current.phase,
                 processedBytes: current.processedBytes,
                 totalBytes: current.totalBytes,
-                message: "Запрошена отмена. Завершаем текущий блок…"
+                message: L10n.text("Запрошена отмена. Завершаем текущий блок…")
             )
         }
+    }
+
+    private func confirmUnsafeCancellation() -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = L10n.choose(english: "Stop flashing the drive?", russian: "Остановить запись на накопитель?")
+        alert.informativeText = L10n.choose(
+            english: "The written portion will be closed safely, but the drive will remain incomplete and must be flashed again.",
+            russian: "Записанная часть образа будет безопасно закрыта, но накопитель останется неполным и его потребуется прошить заново."
+        )
+        alert.addButton(withTitle: L10n.choose(english: "Stop Flashing", russian: "Остановить запись"))
+        alert.addButton(withTitle: L10n.text("Продолжить"))
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     func skipVerification() {
@@ -541,7 +627,7 @@ final class AppModel: ObservableObject {
                 phase: current.phase,
                 processedBytes: current.processedBytes,
                 totalBytes: current.totalBytes,
-                message: "Завершаем проверку по вашему запросу…"
+                message: L10n.text("Завершаем проверку по вашему запросу…")
             )
         }
     }
@@ -604,20 +690,26 @@ final class AppModel: ObservableObject {
     private func confirmOverwrite(at url: URL) -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Заменить существующий образ?"
-        alert.informativeText = "Файл \(url.lastPathComponent) уже существует и будет полностью заменён."
-        alert.addButton(withTitle: "Заменить")
-        alert.addButton(withTitle: "Отмена")
+        alert.messageText = L10n.choose(english: "Replace the existing image?", russian: "Заменить существующий образ?")
+        alert.informativeText = L10n.choose(
+            english: "The file \(url.lastPathComponent) already exists and will be completely replaced.",
+            russian: "Файл \(url.lastPathComponent) уже существует и будет полностью заменён."
+        )
+        alert.addButton(withTitle: L10n.choose(english: "Replace", russian: "Заменить"))
+        alert.addButton(withTitle: L10n.choose(english: "Cancel", russian: "Отмена"))
         return alert.runModal() == .alertFirstButtonReturn
     }
 
     private func confirmDestructiveRestore(to disk: DiskInfo) -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .critical
-        alert.messageText = "Стереть все данные на \(disk.mediaName)?"
-        alert.informativeText = "Будет полностью перезаписан диск \(disk.devicePath) размером \(ByteCountFormatter.string(fromByteCount: Int64(disk.size), countStyle: .decimal)). Отменить запись после ее начала без повреждения данных нельзя."
-        alert.addButton(withTitle: "Стереть и записать")
-        alert.addButton(withTitle: "Отмена")
+        alert.messageText = L10n.choose(english: "Erase \(disk.mediaName)?", russian: "Полностью очистить \(disk.mediaName)?")
+        alert.informativeText = L10n.choose(
+            english: "All data on \(disk.devicePath), with a capacity of \(ByteCountFormatter.string(fromByteCount: Int64(disk.size), countStyle: .decimal)), will be overwritten before flashing. Identity: \(disk.identityDescription). Stopping after writing begins will leave the drive incomplete.",
+            russian: "Все данные на \(disk.devicePath) размером \(ByteCountFormatter.string(fromByteCount: Int64(disk.size), countStyle: .decimal)) будут перезаписаны перед записью образа. Идентификатор: \(disk.identityDescription). Остановка после начала записи оставит накопитель незавершённым."
+        )
+        alert.addButton(withTitle: L10n.choose(english: "Erase and Flash", russian: "Очистить и записать"))
+        alert.addButton(withTitle: L10n.choose(english: "Cancel", russian: "Отмена"))
         return alert.runModal() == .alertFirstButtonReturn
     }
 

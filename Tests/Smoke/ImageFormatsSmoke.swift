@@ -23,7 +23,25 @@ enum ImageFormatsSmoke {
             throw FormatSmokeError.failed("ISO must remain unsupported")
         }
 
-        print("Image format smoke test passed (24 combinations and unsupported formats).")
+        let magicURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("simple-imager-magic-\(UUID().uuidString).img.gz")
+        defer { try? FileManager.default.removeItem(at: magicURL) }
+        try Data([0x28, 0xB5, 0x2F, 0xFD, 0x00]).write(to: magicURL)
+        guard ImageFileFormat.detect(url: magicURL)?.compression == .zstd else {
+            throw FormatSmokeError.failed("content signature did not override the extension")
+        }
+
+        L10n.configure(.english)
+        guard L10n.text("Записать образ") == "Flash image" else {
+            throw FormatSmokeError.failed("English localization is unavailable")
+        }
+        L10n.configure(.russian)
+        guard L10n.text("Записать образ") == "Записать образ" else {
+            throw FormatSmokeError.failed("Russian localization is unavailable")
+        }
+        L10n.configure(.english)
+
+        print("Image format and localization smoke test passed.")
     }
 }
 

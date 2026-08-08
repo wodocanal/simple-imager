@@ -3,7 +3,12 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleDevelopmentRegion</key>
-    <string>ru</string>
+    <string>en</string>
+    <key>CFBundleLocalizations</key>
+    <array>
+        <string>en</string>
+        <string>ru</string>
+    </array>
     <key>CFBundleDisplayName</key>
     <string>Simple Imager</string>
     <key>CFBundleExecutable</key>
@@ -24,14 +29,24 @@
     <string>1</string>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.utilities</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>13.0</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>LSArchitecturePriority</key>
+	<array>
+		<string>arm64</string>
+	</array>
+	<key>LSRequiresNativeExecution</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright © 2026 Simple Imager contributors. All rights reserved.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSRemovableVolumesUsageDescription</key>
-    <string>Приложению нужен доступ к внешним накопителям для создания и восстановления образов.</string>
+    <string>Simple Imager needs access to external drives to create and restore images.</string>
     <key>NSDesktopFolderUsageDescription</key>
-    <string>Приложению нужен доступ к выбранной папке для сохранения образа накопителя.</string>
+    <string>Simple Imager needs access to the selected folder to save drive images.</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
 </dict>

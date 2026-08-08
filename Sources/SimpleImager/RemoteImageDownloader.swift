@@ -55,7 +55,7 @@ enum RemoteImageDownloader {
             "--fail", "--location", "--max-redirs", "10",
             "--proto", "=http,https", "--proto-redir", "=http,https",
             "--connect-timeout", "30", "--silent", "--show-error",
-            "--user-agent", "SD-Archiver/1.0",
+            "--user-agent", "Simple-Imager/0.1.0",
             "--dump-header", headerURL.path,
             "--output", destinationURL.path,
             "--write-out", "%{url_effective}",
@@ -106,6 +106,7 @@ enum RemoteImageDownloader {
         let effectiveURL = URL(string: effectiveValue) ?? remoteURL
         let headers = (try? String(contentsOf: headerURL, encoding: .utf8)) ?? ""
         guard let format = detectedFormat(
+            fileURL: destinationURL,
             originalURL: remoteURL,
             effectiveURL: effectiveURL,
             headers: headers
@@ -124,6 +125,7 @@ enum RemoteImageDownloader {
     }
 
     private static func detectedFormat(
+        fileURL: URL,
         originalURL: URL,
         effectiveURL: URL,
         headers: String
@@ -131,10 +133,10 @@ enum RemoteImageDownloader {
         var names = contentDispositionFileNames(in: headers)
         names.append(effectiveURL.lastPathComponent)
         names.append(originalURL.lastPathComponent)
-        return names.lazy.compactMap { name in
-            guard !name.isEmpty else { return nil }
-            return ImageFileFormat.detect(url: URL(fileURLWithPath: "/tmp/\(name)"))
-        }.first
+        return ImageFileFormat.detect(
+            fileURL: fileURL,
+            suggestedNames: names.filter { !$0.isEmpty }
+        )
     }
 
     private static func contentDispositionFileNames(in headers: String) -> [String] {

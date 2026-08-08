@@ -44,4 +44,25 @@ final class ImageFormatsTests: XCTestCase {
         XCTAssertEqual(model.outputName, "daily-card-backup")
         XCTAssertEqual(model.outputURL?.path, "/tmp/images/daily-card-backup.raw.gz")
     }
+
+    func testMagicOverridesIncorrectCompressionExtension() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("simple-imager-format-\(UUID().uuidString).img.gz")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try Data([0x28, 0xB5, 0x2F, 0xFD, 0x00]).write(to: url)
+
+        XCTAssertEqual(
+            ImageFileFormat.detect(url: url),
+            ImageFileFormat(rawType: .img, compression: .zstd)
+        )
+    }
+
+    func testRejectsCompressedExtensionWithUnknownMagic() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("simple-imager-format-\(UUID().uuidString).img.xz")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try Data("not an archive".utf8).write(to: url)
+
+        XCTAssertNil(ImageFileFormat.detect(url: url))
+    }
 }

@@ -4,6 +4,9 @@ struct DiskInfo: Identifiable, Hashable, Codable {
     let identifier: String
     let mediaName: String
     let size: UInt64
+    let registryEntryID: UInt64
+    let registryPath: String
+    let serialNumber: String?
     let isInternal: Bool
     let isRemovable: Bool
     let isWhole: Bool
@@ -16,35 +19,37 @@ struct DiskInfo: Identifiable, Hashable, Codable {
     var displayName: String {
         "\(mediaName) · \(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .decimal))"
     }
+
+    var identityDescription: String {
+        if let serialNumber, !serialNumber.isEmpty {
+            return "S/N \(serialNumber)"
+        }
+        return "IORegistry \(String(registryEntryID, radix: 16).uppercased())"
+    }
 }
 
 enum ImageProcessingMode: String, Codable, CaseIterable, Identifiable {
     case exact
-    case optimizeFreeSpace
     case shrinkExt
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .exact: "Без изменений"
-        case .optimizeFreeSpace: "Обнулить пустоты"
-        case .shrinkExt: "Уменьшить образ"
+        case .exact: L10n.text("Без изменений")
+        case .shrinkExt: L10n.text("Уменьшить образ")
         }
     }
 
     var explanation: String {
         switch self {
         case .exact:
-            "Каждый сектор сохраняется без изменений, включая содержимое свободного места."
-        case .optimizeFreeSpace:
-            "Неиспользуемые кластеры FAT32/exFAT превращаются в нули. Несжатые образы сохраняются разреженными и занимают меньше места на диске."
+            L10n.text("Каждый сектор сохраняется без изменений, включая содержимое свободного места.")
         case .shrinkExt:
-            "Последний основной раздел ext2/3/4 и логический размер MBR-образа уменьшаются, а свободные блоки зануляются."
+            L10n.text("Последний основной раздел ext2/3/4 и логический размер MBR-образа уменьшаются, а свободные блоки зануляются.")
         }
     }
 
-    var optimizesFreeSpace: Bool { self == .optimizeFreeSpace }
     var shrinksExt: Bool { self == .shrinkExt }
 }
 
@@ -57,9 +62,9 @@ enum RestoreSourceKind: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .file: "Из файла"
-        case .url: "По URL"
-        case .drive: "Клонировать"
+        case .file: L10n.text("Из файла")
+        case .url: L10n.text("По URL")
+        case .drive: L10n.text("Клонировать")
         }
     }
 
@@ -78,6 +83,7 @@ enum JobPhase: String, Codable {
     case analyzing
     case reading
     case shrinking
+    case compressing
     case verifyingArchive
     case writing
     case verifyingCard
@@ -88,18 +94,19 @@ enum JobPhase: String, Codable {
 
     var title: String {
         switch self {
-        case .preparing: "Подготовка"
-        case .downloading: "Загрузка образа"
-        case .analyzing: "Анализ разделов"
-        case .reading: "Создание образа"
-        case .shrinking: "Уменьшение образа"
-        case .verifyingArchive: "Проверка образа"
-        case .writing: "Запись образа"
-        case .verifyingCard: "Проверка записи"
-        case .finalizing: "Завершение"
-        case .completed: "Готово"
-        case .cancelled: "Отменено"
-        case .failed: "Ошибка"
+        case .preparing: L10n.text("Подготовка")
+        case .downloading: L10n.text("Загрузка образа")
+        case .analyzing: L10n.text("Анализ разделов")
+        case .reading: L10n.text("Копирование носителя")
+        case .shrinking: L10n.text("Уменьшение образа")
+        case .compressing: L10n.text("Архивация образа")
+        case .verifyingArchive: L10n.text("Проверка образа")
+        case .writing: L10n.text("Запись образа")
+        case .verifyingCard: L10n.text("Проверка записи")
+        case .finalizing: L10n.text("Завершение")
+        case .completed: L10n.text("Готово")
+        case .cancelled: L10n.text("Отменено")
+        case .failed: L10n.text("Ошибка")
         }
     }
 }
@@ -124,8 +131,8 @@ enum OperationKind: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .create: "Считать образ"
-        case .restore: "Записать образ"
+        case .create: L10n.text("Считать образ")
+        case .restore: L10n.text("Записать образ")
         }
     }
 }
@@ -149,7 +156,7 @@ enum AppError: LocalizedError {
              .archiveInvalid(let message):
             message
         case .cancelled:
-            "Операция отменена."
+            L10n.text("Операция отменена.")
         }
     }
 }

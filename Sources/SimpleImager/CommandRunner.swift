@@ -9,8 +9,22 @@ struct CommandOutput {
 enum CommandRunner {
     static func run(_ executable: String, _ arguments: [String]) throws -> CommandOutput {
         let process = Process()
-        let stdout = Pipe()
-        let stderr = Pipe()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("simple-imager-command-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: false,
+            attributes: [.posixPermissions: 0o700]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let stdoutURL = directory.appendingPathComponent("stdout")
+        let stderrURL = directory.appendingPathComponent("stderr")
+        guard FileManager.default.createFile(atPath: stdoutURL.path, contents: nil),
+              FileManager.default.createFile(atPath: stderrURL.path, contents: nil) else {
+            throw AppError.commandFailed("Не удалось создать файлы вывода служебной команды.")
+        }
+        let stdout = try FileHandle(forWritingTo: stdoutURL)
+        let stderr = try FileHandle(forWritingTo: stderrURL)
 
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
@@ -20,13 +34,17 @@ enum CommandRunner {
         do {
             try process.run()
         } catch {
+            try? stdout.close()
+            try? stderr.close()
             throw AppError.commandFailed("Не удалось запустить \(executable): \(error.localizedDescription)")
         }
 
         process.waitUntilExit()
+        try stdout.close()
+        try stderr.close()
         return CommandOutput(
-            stdout: stdout.fileHandleForReading.readDataToEndOfFile(),
-            stderr: stderr.fileHandleForReading.readDataToEndOfFile(),
+            stdout: (try? Data(contentsOf: stdoutURL)) ?? Data(),
+            stderr: (try? Data(contentsOf: stderrURL)) ?? Data(),
             status: process.terminationStatus
         )
     }

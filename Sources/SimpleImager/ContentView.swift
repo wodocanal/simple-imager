@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ContentView: View {
-    @StateObject private var model = AppModel()
+    @ObservedObject var model: AppModel
     @Namespace private var modeHighlight
     @State private var hasAppeared = false
     @State private var showsSettings = false
@@ -11,20 +11,28 @@ struct ContentView: View {
         ZStack {
             background
 
-            VStack(spacing: 0) {
-                topBar
-                workflow
-                    .frame(width: 540)
-                    .padding(.top, 18)
-                Spacer(minLength: 10)
-                progressArea
-                    .frame(width: 540)
-                    .padding(.bottom, 10)
-                primaryAction
+            ZStack {
+                VStack(spacing: 0) {
+                    topBar
+                    workflow
+                        .frame(width: 540)
+                        .padding(.top, 12)
+                    Spacer(minLength: 0)
+                }
+
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    progressArea
+                        .frame(width: 540, height: 70)
+                        .padding(.bottom, 10)
+                    primaryAction
+                        .padding(.bottom, 18)
+                }
             }
             .padding(.horizontal, 24)
             .padding(.top, 6)
             .padding(.bottom, 12)
+            .frame(maxHeight: .infinity, alignment: .top)
             .ignoresSafeArea(.container, edges: .top)
             .opacity(hasAppeared ? 1 : 0)
             .offset(y: hasAppeared ? 0 : 14)
@@ -35,6 +43,10 @@ struct ContentView: View {
             withAnimation(.easeOut(duration: 0.45)) {
                 hasAppeared = true
             }
+        }
+        .sheet(isPresented: $model.showsFirstLaunch) {
+            FirstLaunchView(model: model)
+                .interactiveDismissDisabled()
         }
     }
 
@@ -79,7 +91,7 @@ struct ContentView: View {
                     .padding(.leading, 48)
                 Spacer()
                 HStack(spacing: 6) {
-                    utilityButton(icon: "gearshape.fill", help: "Настройки") {
+                    utilityButton(icon: "gearshape.fill", help: L10n.text("Настройки")) {
                         showsSettings.toggle()
                     }
                     .popover(isPresented: $showsSettings, arrowEdge: .top) {
@@ -148,46 +160,59 @@ struct ContentView: View {
     private var settingsPopover: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("Настройки")
+                Text(L10n.text("Настройки"))
                     .font(.custom("Avenir Next Demi Bold", size: 16))
                     .foregroundStyle(primaryText)
-                Text("Параметры следующего образа")
+                Text(L10n.text("Параметры следующего образа"))
                     .font(.custom("Avenir Next Medium", size: 10))
                     .foregroundStyle(secondaryText)
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("Обработка образа по умолчанию")
+                Text(L10n.text("Язык"))
                     .font(.custom("Avenir Next Demi Bold", size: 11))
                     .foregroundStyle(primaryText)
-                Picker("", selection: $model.processingMode) {
-                    Text("Без изменений").tag(ImageProcessingMode.exact)
-                    Text("Обнулить").tag(ImageProcessingMode.optimizeFreeSpace)
-                    Text("Уменьшить").tag(ImageProcessingMode.shrinkExt)
+                Picker("", selection: $model.language) {
+                    ForEach(AppLanguage.allCases) { language in
+                        Text(language.title).tag(language)
+                    }
                 }
-                .labelsHidden()
                 .pickerStyle(.segmented)
                 .disabled(model.isWorking)
+            }
 
-                Toggle("Расширять ext при первой загрузке", isOn: $model.autoExpandShrunkExt)
+            Divider().overlay(Color.white.opacity(0.08))
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(L10n.text("Обработка образа"))
+                    .font(.custom("Avenir Next Demi Bold", size: 11))
+                    .foregroundStyle(primaryText)
+                Toggle(L10n.text("Уменьшить образ"), isOn: shrinkImageBinding)
                     .toggleStyle(.switch)
                     .controlSize(.mini)
-                    .font(.custom("Avenir Next Medium", size: 10))
-                    .foregroundStyle(primaryText)
                     .disabled(model.isWorking)
+
+                if model.processingMode == .shrinkExt {
+                    Toggle(L10n.text("Расширять ext при первой загрузке"), isOn: $model.autoExpandShrunkExt)
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                        .font(.custom("Avenir Next Medium", size: 10))
+                        .foregroundStyle(primaryText)
+                        .disabled(model.isWorking)
+                }
             }
 
             Divider().overlay(Color.white.opacity(0.08))
 
             VStack(alignment: .leading, spacing: 9) {
-                Text("Автоматически извлекать носитель")
+                Text(L10n.text("Автоматически извлекать носитель"))
                     .font(.custom("Avenir Next Demi Bold", size: 11))
                     .foregroundStyle(primaryText)
 
-                Toggle("После считывания образа", isOn: $model.ejectAfterCreate)
+                Toggle(L10n.text("После считывания образа"), isOn: $model.ejectAfterCreate)
                     .toggleStyle(.switch)
                     .controlSize(.mini)
-                Toggle("После записи образа", isOn: $model.ejectAfterRestore)
+                Toggle(L10n.text("После записи образа"), isOn: $model.ejectAfterRestore)
                     .toggleStyle(.switch)
                     .controlSize(.mini)
             }
@@ -197,11 +222,22 @@ struct ContentView: View {
 
             Divider().overlay(Color.white.opacity(0.08))
 
+            HStack(spacing: 8) {
+                Button(L10n.text("Проверка готовности")) {
+                    showsSettings = false
+                    model.showFirstLaunch()
+                }
+                Button(L10n.text("Лицензии")) {
+                    model.openThirdPartyLicenses()
+                }
+            }
+            .font(.custom("Avenir Next Demi Bold", size: 10))
+
             let codecAvailable = model.imageCompression.isAvailable(for: .encode)
             Label(
                 codecAvailable
-                    ? "Формат .\(model.selectedFormat.fileSuffix) готов"
-                    : "Для \(model.imageCompression.shortTitle) нужен внешний кодек",
+                    ? L10n.choose(english: ".\(model.selectedFormat.fileSuffix) format is ready", russian: "Формат .\(model.selectedFormat.fileSuffix) готов")
+                    : L10n.choose(english: "\(model.imageCompression.shortTitle) requires an external codec", russian: "Для \(model.imageCompression.shortTitle) нужен внешний кодек"),
                 systemImage: codecAvailable ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
             )
             .font(.custom("Avenir Next Medium", size: 10))
@@ -214,29 +250,25 @@ struct ContentView: View {
 
     private var faqPopover: some View {
         VStack(alignment: .leading, spacing: 15) {
-            Text("Коротко о работе")
+            Text(L10n.text("Коротко о работе"))
                 .font(.custom("Avenir Next Demi Bold", size: 16))
                 .foregroundStyle(primaryText)
 
             faqItem(
-                title: "Какие носители поддерживаются?",
-                text: "Внешние SD-карты, USB-флешки, SSD и жесткие диски, которые macOS видит как физический диск."
+                title: L10n.text("Какие носители поддерживаются?"),
+                text: L10n.text("Внешние SD-карты, USB-флешки, SSD и жесткие диски, которые macOS видит как физический диск.")
             )
             faqItem(
-                title: "Что делает обнуление пустот?",
-                text: "Свободные кластеры FAT32 и exFAT превращаются в нули. Без сжатия создаётся sparse-образ: полный логический размер, но меньше занятого места на диске."
+                title: L10n.text("Что делает уменьшение ext?"),
+                text: L10n.text("Уменьшает последний основной раздел ext2/3/4 в MBR, обрабатывает свободные блоки и может расширить rootfs при первой загрузке. Использует встроенные e2fsprogs и не требует Docker.")
             )
             faqItem(
-                title: "Что делает уменьшение ext?",
-                text: "Уменьшает последний основной раздел ext2/3/4 в MBR, зануляет свободные блоки и может расширить rootfs при первой загрузке. Работает без Docker, но требует e2fsprogs."
+                title: L10n.text("Какие образы поддерживаются?"),
+                text: L10n.text("IMG, RAW и DD без сжатия или в ZSTD, GZIP, XZ, BZIP2, LZ4, ZIP и 7Z. Отдельный JSON не создается.")
             )
             faqItem(
-                title: "Какие образы поддерживаются?",
-                text: "IMG, RAW и DD без сжатия или в ZSTD, GZIP, XZ, BZIP2, LZ4, ZIP и 7Z. Отдельный JSON не создается."
-            )
-            faqItem(
-                title: "Можно ли записать на меньший диск?",
-                text: "Да, если образ был уменьшен. Целевой носитель должен вмещать итоговый логический размер файла."
+                title: L10n.text("Можно ли записать на меньший диск?"),
+                text: L10n.text("Да, если образ был уменьшен. Целевой носитель должен вмещать итоговый логический размер файла.")
             )
         }
         .padding(18)
@@ -260,23 +292,19 @@ struct ContentView: View {
     private var workflow: some View {
         VStack(spacing: 6) {
             if model.operation == .create {
-                StepSection(number: "01", title: "Выберите носитель") {
+                StepSection(number: "01", title: L10n.text("Выберите носитель")) {
                     devicePicker(isTarget: false)
                 }
 
-                StepSection(number: "02", title: "Название и расположение образа") {
+                StepSection(number: "02", title: L10n.text("Параметры образа")) {
                     imageDestinationEditor
                 }
-
-                StepSection(number: "03", title: "Свободное место и сжатие") {
-                    imageOptions
-                }
             } else {
-                StepSection(number: "01", title: "Источник образа") {
+                StepSection(number: "01", title: L10n.text("Источник образа")) {
                     restoreSourceControls
                 }
 
-                StepSection(number: "02", title: "Выберите целевой носитель") {
+                StepSection(number: "02", title: L10n.text("Выберите целевой носитель")) {
                     devicePicker(isTarget: true)
                 }
             }
@@ -298,7 +326,7 @@ struct ContentView: View {
                             Button {
                                 model.selectTargetDisk(candidate.identifier)
                             } label: {
-                                Text("\(candidate.displayName)  [\(candidate.devicePath)]")
+                                Text("\(candidate.displayName)  [\(candidate.devicePath), \(candidate.identityDescription)]")
                             }
                         }
                     } label: {
@@ -323,11 +351,12 @@ struct ContentView: View {
                     }
                     .menuStyle(.borderlessButton)
                     .disabled(model.isWorking)
+                    .help("\(disk.devicePath) · \(disk.identityDescription) · \(disk.registryPath)")
                 } else {
                     HStack(spacing: 11) {
                         deviceIcon(isTarget: isTarget)
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(model.isRefreshing ? "Ищем внешние накопители…" : "Носитель не найден")
+                            Text(model.isRefreshing ? L10n.text("Ищем внешние накопители…") : L10n.text("Носитель не найден"))
                                 .font(.custom("Avenir Next Demi Bold", size: 12))
                                 .foregroundStyle(primaryText)
                         }
@@ -356,18 +385,9 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(model.isWorking || model.isRefreshing)
-                .help("Обновить список устройств")
+                .help(L10n.text("Обновить список устройств"))
             }
 
-            if isTarget, let disk = selected {
-                HStack(spacing: 7) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                    Text("Будет полностью очищен \(disk.devicePath). Отменить запись без потери данных нельзя.")
-                    Spacer()
-                }
-                .font(.custom("Avenir Next Medium", size: 10))
-                .foregroundStyle(warning)
-            }
         }
     }
 
@@ -383,71 +403,103 @@ struct ContentView: View {
     }
 
     private var imageDestinationEditor: some View {
-        HStack(spacing: 8) {
-            Button(action: model.chooseOutputDirectory) {
-                HStack(spacing: 8) {
-                    Image(systemName: "folder.fill")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(accentBlue)
-                    Text(model.outputDirectoryURL?.lastPathComponent ?? "Расположение")
-                        .font(.custom("Avenir Next Demi Bold", size: 10))
-                        .foregroundStyle(model.outputDirectoryURL == nil ? secondaryText : primaryText)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Spacer(minLength: 2)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 8, weight: .semibold))
-                        .foregroundStyle(secondaryText)
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                Button(action: model.chooseOutputDirectory) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(accentBlue)
+                        Text(model.outputDirectoryURL?.lastPathComponent ?? L10n.text("Расположение"))
+                            .font(.custom("Avenir Next Demi Bold", size: 10))
+                            .foregroundStyle(model.outputDirectoryURL == nil ? secondaryText : primaryText)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer(minLength: 2)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundStyle(secondaryText)
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(width: 176, height: 42)
+                    .background(fieldSurface, in: RoundedRectangle(cornerRadius: 11))
+                    .overlay(RoundedRectangle(cornerRadius: 11).stroke(Color.white.opacity(0.07), lineWidth: 1))
                 }
-                .padding(.horizontal, 10)
-                .frame(width: 176, height: 42)
+                .buttonStyle(.plain)
+                .disabled(model.isWorking)
+                .help(model.outputDirectoryURL?.path ?? L10n.text("Выбрать папку"))
+
+                TextField(
+                    L10n.text("Название"),
+                    text: Binding(
+                        get: { model.outputName },
+                        set: model.updateOutputName
+                    )
+                )
+                .textFieldStyle(.plain)
+                .font(.custom("Avenir Next Demi Bold", size: 11))
+                .foregroundStyle(primaryText)
+                .padding(.horizontal, 11)
+                .frame(maxWidth: .infinity, minHeight: 42)
                 .background(fieldSurface, in: RoundedRectangle(cornerRadius: 11))
                 .overlay(RoundedRectangle(cornerRadius: 11).stroke(Color.white.opacity(0.07), lineWidth: 1))
-            }
-            .buttonStyle(.plain)
-            .disabled(model.isWorking)
-            .help(model.outputDirectoryURL?.path ?? "Выбрать папку")
+                .disabled(model.isWorking)
 
-            TextField(
-                "Название",
-                text: Binding(
-                    get: { model.outputName },
-                    set: model.updateOutputName
-                )
-            )
-            .textFieldStyle(.plain)
-            .font(.custom("Avenir Next Demi Bold", size: 11))
+                Menu {
+                    ForEach(RawImageType.allCases) { type in
+                        Button {
+                            model.selectRawImageType(type)
+                        } label: {
+                            if model.rawImageType == type {
+                                Label(".\(type.title)", systemImage: "checkmark")
+                            } else {
+                                Text(".\(type.title)")
+                            }
+                        }
+                    }
+                } label: {
+                    compactSelectorLabel(value: ".\(model.rawImageType.title)")
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .frame(width: 88, height: 42)
+                .disabled(model.isWorking)
+            }
+
+            HStack(spacing: 8) {
+                shrinkImageToggle
+                    .frame(width: 176)
+                Spacer(minLength: 8)
+                compressionSelector
+                    .frame(width: 88)
+            }
+        }
+    }
+
+    private var shrinkImageToggle: some View {
+        Toggle(L10n.text("Уменьшить образ"), isOn: shrinkImageBinding)
+            .toggleStyle(.checkbox)
+            .controlSize(.small)
+            .font(.custom("Avenir Next Demi Bold", size: 9))
             .foregroundStyle(primaryText)
-            .padding(.horizontal, 11)
-            .frame(maxWidth: .infinity, minHeight: 42)
+            .tint(accentBlue)
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
             .background(fieldSurface, in: RoundedRectangle(cornerRadius: 11))
             .overlay(RoundedRectangle(cornerRadius: 11).stroke(Color.white.opacity(0.07), lineWidth: 1))
             .disabled(model.isWorking)
+            .help(ImageProcessingMode.shrinkExt.explanation)
+    }
 
-            Menu {
-                ForEach(RawImageType.allCases) { type in
-                    Button {
-                        model.selectRawImageType(type)
-                    } label: {
-                        if model.rawImageType == type {
-                            Label(".\(type.title)", systemImage: "checkmark")
-                        } else {
-                            Text(".\(type.title)")
-                        }
-                    }
-                }
-            } label: {
-                Text(".\(model.rawImageType.title)")
-                    .font(.custom("SF Mono", size: 10))
-                    .foregroundStyle(primaryText)
-                    .padding(.horizontal, 10)
-                    .frame(width: 88, height: 42, alignment: .leading)
-                    .background(fieldSurface, in: RoundedRectangle(cornerRadius: 11))
-                    .overlay(RoundedRectangle(cornerRadius: 11).stroke(Color.white.opacity(0.07), lineWidth: 1))
+    private var shrinkImageBinding: Binding<Bool> {
+        Binding(
+            get: { model.processingMode == .shrinkExt },
+            set: { shouldShrink in
+                model.processingMode = shouldShrink ? .shrinkExt : .exact
+                model.errorMessage = nil
+                model.progress = nil
             }
-            .menuStyle(.borderlessButton)
-            .disabled(model.isWorking)
-        }
+        )
     }
 
     private var restoreSourceControls: some View {
@@ -555,7 +607,7 @@ struct ContentView: View {
                         Button {
                             model.selectSourceDisk(candidate.identifier)
                         } label: {
-                            Text("\(candidate.displayName)  [\(candidate.devicePath)]")
+                            Text("\(candidate.displayName)  [\(candidate.devicePath), \(candidate.identityDescription)]")
                         }
                     }
                 } label: {
@@ -580,10 +632,11 @@ struct ContentView: View {
                     .overlay(RoundedRectangle(cornerRadius: 13).stroke(Color.white.opacity(0.07), lineWidth: 1))
                 }
                 .menuStyle(.borderlessButton)
+                .help("\(disk.devicePath) · \(disk.identityDescription) · \(disk.registryPath)")
             } else {
                 HStack(spacing: 11) {
                     deviceIcon(isTarget: false)
-                    Text(model.disks.isEmpty ? "Носители не найдены" : "Подключите второй носитель")
+                    Text(model.disks.isEmpty ? L10n.text("Носители не найдены") : L10n.text("Подключите второй носитель"))
                         .font(.custom("Avenir Next Demi Bold", size: 12))
                         .foregroundStyle(primaryText)
                     Spacer()
@@ -612,7 +665,7 @@ struct ContentView: View {
                 .frame(width: 34, height: 34)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(model.imageURL?.lastPathComponent ?? "Открыть файл образа")
+                    Text(model.imageURL?.lastPathComponent ?? L10n.text("Открыть файл образа"))
                         .font(.custom("Avenir Next Demi Bold", size: 12))
                         .foregroundStyle(primaryText)
                         .lineLimit(1)
@@ -625,7 +678,7 @@ struct ContentView: View {
                     }
                 }
                 Spacer()
-                Text(model.imageURL == nil ? "Выбрать" : "Изменить")
+                Text(model.imageURL == nil ? L10n.text("Выбрать") : L10n.text("Изменить"))
                     .font(.custom("Avenir Next Demi Bold", size: 11))
                     .foregroundStyle(accentBlue)
                 Image(systemName: "chevron.right")
@@ -638,54 +691,6 @@ struct ContentView: View {
         }
         .buttonStyle(.plain)
         .disabled(model.isWorking)
-    }
-
-    private var imageOptions: some View {
-        VStack(spacing: 7) {
-            HStack(spacing: 7) {
-                processingModeOption(mode: .exact, icon: "square.stack.3d.up.fill")
-                processingModeOption(mode: .optimizeFreeSpace, icon: "eraser.fill")
-                processingModeOption(mode: .shrinkExt, icon: "arrow.down.right.and.arrow.up.left")
-            }
-            compressionSelector
-        }
-    }
-
-    private func processingModeOption(
-        mode: ImageProcessingMode,
-        icon: String
-    ) -> some View {
-        let selected = model.processingMode == mode
-        return Button {
-            model.processingMode = mode
-            model.errorMessage = nil
-            model.progress = nil
-        } label: {
-            HStack(spacing: 7) {
-                Image(systemName: icon)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(selected ? accentBlue : secondaryText)
-                Text(mode.title)
-                    .font(.custom("Avenir Next Demi Bold", size: 9))
-                    .foregroundStyle(primaryText)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                Spacer()
-                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(selected ? accentBlue : secondaryText.opacity(0.7))
-            }
-            .padding(9)
-            .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
-            .background(selected ? accentBlue.opacity(0.08) : fieldSurface, in: RoundedRectangle(cornerRadius: 13))
-            .overlay(
-                RoundedRectangle(cornerRadius: 13)
-                    .stroke(selected ? accentBlue.opacity(0.72) : Color.white.opacity(0.06), lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-        .disabled(model.isWorking)
-        .help(mode.explanation)
     }
 
     private var compressionSelector: some View {
@@ -702,31 +707,31 @@ struct ContentView: View {
                 }
             }
         } label: {
-            formatMenuLabel(caption: "СЖАТИЕ", value: model.imageCompression.shortTitle, icon: "archivebox.fill")
+            compactSelectorLabel(value: model.imageCompression.shortTitle)
         }
-        .frame(maxWidth: .infinity)
         .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .frame(width: 88, height: 42)
         .disabled(model.isWorking)
+        .help(L10n.choose(english: "Compression: \(model.imageCompression.title)", russian: "Сжатие: \(model.imageCompression.title)"))
     }
 
-    private func formatMenuLabel(caption: String, value: String, icon: String) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: icon)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(accentBlue)
-            Text("\(caption)  ·  \(value)")
-                .font(.custom("Avenir Next Demi Bold", size: 8))
-                .tracking(0.5)
+    private func compactSelectorLabel(value: String) -> some View {
+        HStack(spacing: 5) {
+            Text(value)
+                .font(.custom("SF Mono", size: 9))
                 .foregroundStyle(primaryText)
-            Spacer()
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+            Spacer(minLength: 1)
             Image(systemName: "chevron.up.chevron.down")
-                .font(.system(size: 8, weight: .semibold))
+                .font(.system(size: 7, weight: .semibold))
                 .foregroundStyle(secondaryText)
         }
         .padding(.horizontal, 10)
-        .frame(maxWidth: .infinity, minHeight: 32)
-        .background(fieldSurface, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.06), lineWidth: 1))
+        .frame(width: 88, height: 42, alignment: .leading)
+        .background(fieldSurface, in: RoundedRectangle(cornerRadius: 11))
+        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Color.white.opacity(0.07), lineWidth: 1))
     }
 
     @ViewBuilder
@@ -739,9 +744,11 @@ struct ContentView: View {
                         Text(progress.phase.title)
                             .font(.custom("Avenir Next Demi Bold", size: 13))
                             .foregroundStyle(primaryText)
-                        Text(progress.message)
+                        Text(L10n.text(progress.message))
                             .font(.custom("Avenir Next Medium", size: 10))
                             .foregroundStyle(progress.phase == .failed ? danger : secondaryText)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                     }
                     Spacer()
                     if progress.totalBytes > 0 {
@@ -751,40 +758,53 @@ struct ContentView: View {
                     }
                 }
 
-                if progress.totalBytes > 0 {
-                    ProgressView(value: progress.fraction)
-                        .tint(progress.phase == .failed ? danger : accentBlue)
-                } else if model.isWorking {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(accentBlue)
+                Group {
+                    if progress.totalBytes > 0 {
+                        ProgressView(value: progress.fraction)
+                    } else {
+                        ProgressView()
+                    }
                 }
+                .progressViewStyle(.linear)
+                .tint(progress.phase == .failed ? danger : accentBlue)
+                .frame(height: 4)
             }
             .padding(12)
+            .frame(maxWidth: .infinity, minHeight: 70, maxHeight: 70)
             .background(surface.opacity(0.88), in: RoundedRectangle(cornerRadius: 15))
             .overlay(RoundedRectangle(cornerRadius: 15).stroke(Color.white.opacity(0.07), lineWidth: 1))
         } else if let error = model.errorMessage {
-            VStack(alignment: .leading, spacing: 10) {
-                Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.custom("Avenir Next Medium", size: 11))
+            HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(danger)
+                Text(L10n.text(error))
+                    .font(.custom("Avenir Next Medium", size: 10))
+                    .foregroundStyle(danger)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                    .help(L10n.text(error))
+                Spacer(minLength: 4)
 
                 if model.needsFullDiskAccess {
                     Button(action: model.openFullDiskAccessSettings) {
-                        Label("Открыть полный доступ к диску", systemImage: "gearshape.fill")
-                            .font(.custom("Avenir Next Demi Bold", size: 10))
+                        Label(L10n.text("Открыть настройки"), systemImage: "gearshape.fill")
+                            .font(.custom("Avenir Next Demi Bold", size: 9))
                             .foregroundStyle(.white)
-                            .padding(.horizontal, 12)
+                            .padding(.horizontal, 10)
                             .padding(.vertical, 7)
                             .background(accentBlue, in: RoundedRectangle(cornerRadius: 8))
                     }
                     .buttonStyle(.plain)
+                    .fixedSize()
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
+            .padding(12)
+            .frame(maxWidth: .infinity, minHeight: 70, maxHeight: 70)
             .background(danger.opacity(0.08), in: RoundedRectangle(cornerRadius: 13))
             .overlay(RoundedRectangle(cornerRadius: 13).stroke(danger.opacity(0.22), lineWidth: 1))
+        } else {
+            Color.clear
         }
     }
 
@@ -793,14 +813,14 @@ struct ContentView: View {
             if model.isWorking {
                 if model.progress?.phase == .verifyingCard {
                     actionButton(
-                        title: "Пропустить проверку",
+                        title: L10n.text("Пропустить проверку"),
                         icon: "forward.end.fill",
                         destructive: false,
                         action: model.skipVerification
                     )
                 } else {
                     actionButton(
-                        title: "Остановить операцию",
+                        title: L10n.text("Остановить операцию"),
                         icon: "stop.fill",
                         destructive: true,
                         action: model.cancel
@@ -817,7 +837,7 @@ struct ContentView: View {
             }
 
             if let availabilityMessage = model.codecAvailabilityMessage {
-                Label(availabilityMessage, systemImage: "exclamationmark.triangle")
+                Label(L10n.text(availabilityMessage), systemImage: "exclamationmark.triangle")
                     .font(.custom("SF Mono", size: 10))
                     .foregroundStyle(warning)
             }
@@ -825,11 +845,11 @@ struct ContentView: View {
     }
 
     private var primaryActionTitle: String {
-        guard model.operation == .restore else { return "Начать считывание" }
+        guard model.operation == .restore else { return L10n.text("Начать считывание") }
         switch model.restoreSourceKind {
-        case .file: return "Начать запись"
-        case .url: return "Скачать и записать"
-        case .drive: return "Начать клонирование"
+        case .file: return L10n.text("Начать запись")
+        case .url: return L10n.text("Скачать и записать")
+        case .drive: return L10n.text("Начать клонирование")
         }
     }
 

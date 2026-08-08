@@ -1,73 +1,90 @@
 # Simple Imager
 
-Небольшое нативное macOS-приложение для создания образов внешних накопителей и их восстановления.
+[Русская версия](README.ru.md)
 
-## Что уже умеет
+A compact native macOS application for creating, shrinking, compressing, flashing, and verifying raw images of external drives.
 
-- показывает только целые внешние физические диски;
-- создает потоковые образы IMG, RAW и DD;
-- записывает образ из локального файла, прямого HTTP/HTTPS-URL или другого внешнего носителя;
-- клонирует внешний носитель напрямую на другой без промежуточного образа;
-- поддерживает ZSTD, GZIP, XZ, BZIP2, LZ4, ZIP и 7Z;
-- в режиме «Обнулить пустоты» обнуляет свободные кластеры FAT32 и exFAT, не изменяя исходную карту;
-- сохраняет несжатые оптимизированные образы разреженными, поэтому нулевые области не занимают место на APFS;
-- умеет физически уменьшать последний основной раздел ext2/3/4 в MBR-образе без Docker;
-- зануляет оставшиеся свободные ext-блоки и может добавить одноразовое авторасширение rootfs через systemd;
-- не создает дополнительный JSON или другой sidecar-файл;
-- полностью проверяет и хеширует образ до начала восстановления;
-- запрещает запись на внутренний диск и на накопитель меньше логического размера образа;
-- сверяет всю карту после записи, но позволяет пропустить уже начавшуюся проверку.
-- умеет автоматически извлекать носитель после успешного считывания или записи; обе операции настраиваются отдельно.
+## Features
 
-Режим «Обнулить пустоты» уменьшает сжатый файл, а несжатый IMG/RAW/DD делает разреженным. Логический размер и таблица разделов остаются исходными, поэтому для восстановления всё ещё нужна карта не меньше оригинала. При копировании sparse-файла на файловую систему без поддержки разреженных файлов он может развернуться до полного размера.
+- lists only whole external physical drives;
+- identifies a selected drive using its current IORegistry entry, registry path, serial number when available, model, and capacity;
+- creates IMG, RAW, and DD images;
+- flashes an image from a local file, a direct HTTP/HTTPS URL, or another external drive;
+- clones one external drive directly to another;
+- supports ZSTD, GZIP, XZ, BZIP2, LZ4, ZIP, and 7Z;
+- detects compression from file signatures instead of relying only on the extension;
+- can physically shrink the last primary ext2/3/4 partition in an MBR image without Docker;
+- can install a one-shot systemd service that expands rootfs on first boot;
+- creates no JSON or other sidecar file;
+- verifies the entire target drive after flashing and allows an ongoing verification to be skipped;
+- can automatically eject a drive after image creation or flashing;
+- warns before quitting while an operation is running and waits for safe cancellation;
+- includes English and Russian UI, with English selected by default.
 
-Опция «Уменьшить ext» работает иначе: приложение сначала создает временную raw-копию, проверяет и уменьшает последний основной раздел ext2/3/4 через `e2fsprogs`, зануляет оставшиеся свободные блоки, обновляет MBR и обрезает сам образ. Такой образ можно записать на меньший накопитель, если тот вмещает его новый логический размер. Исходный носитель открывается только для чтения и не изменяется.
+## Image workflow
 
-Настройка «Расширять ext при первой загрузке» добавляет в совместимый Linux-образ одноразовый systemd-сервис. После восстановления он расширяет последний раздел и ext-файловую систему до доступного размера, а затем удаляет себя. Это рассчитано прежде всего на Raspberry Pi OS и Ubuntu; если в образе нет systemd, уменьшение продолжится без авторасширения и приложение сообщит об этом. GPT, расширенные разделы и другие файловые системы пока не уменьшаются.
+When creating an image, Simple Imager first copies the complete source drive to a temporary RAW file. It can then shrink a supported ext partition and compress the result. The source drive is opened read-only and is no longer accessed after the initial copy.
 
-## Запуск
+When flashing a file, the image is extracted exactly once into a private temporary RAW file while SHA-256 is calculated. That same RAW file is written to the target, and the target is read back and compared with the saved hash. A URL is fully downloaded and its format is checked before the destructive target confirmation appears.
 
-Требования: macOS 13+ и Swift 6. GZIP, BZIP2 и ZIP работают системными средствами macOS. Для остальных способов сжатия установите нужные утилиты:
+Cancelling while data is being written requires an additional confirmation. If cancellation happens before the write completes, Simple Imager invalidates the beginning of the partial target so macOS does not mount an incomplete filesystem.
+
+## ext shrinking
+
+Shrink image uses bundled `e2fsprogs` to check and shrink the last primary ext2/3/4 partition, process its free blocks, update the MBR, and truncate the image. The resulting image can be flashed to a smaller drive if that drive fits the new logical size.
+
+Expand ext on first boot adds a one-shot systemd service to a compatible Linux image. It expands the final partition and ext filesystem, then removes itself. This is intended primarily for Raspberry Pi OS and Ubuntu. GPT, extended/logical partitions, LVM, encryption, and non-ext filesystems are not currently shrinkable.
+
+## Compatibility
+
+The current build supports Apple silicon Macs running macOS 13 or later. Intel Macs are not supported. The application and bundled runtime are arm64-only.
+
+The first-launch screen checks architecture, required macOS tools, the application signature, and SHA-256 hashes of bundled utilities and libraries. `zstd`, `xz`, `lz4`, `7zz`, and required `e2fsprogs` components are included in the app. End users do not need Homebrew, Docker, PiShrink, or separate codecs.
+
+Direct `/dev/rdiskN` access requires the standard macOS administrator authorization prompt. If macOS returns Operation not permitted, enable Full Disk Access for Simple Imager and restart it.
+
+## Build and run
+
+Building from source requires macOS 13+, Swift 6, Apple silicon, and these Homebrew packages used to assemble the self-contained runtime:
 
 ```bash
-brew install zstd xz lz4 sevenzip
-```
-
-Для опции «Уменьшить ext» дополнительно требуется:
-
-```bash
-brew install e2fsprogs
-```
-
-Docker и PiShrink не требуются.
-
-```bash
+brew install zstd xz lz4 sevenzip e2fsprogs gettext
 zsh scripts/build-app.sh
 open ".build/Simple Imager.app"
 ```
 
-Скрипт собирает обычный macOS `.app` и подписывает его локальной ad-hoc подписью. `Package.swift` также можно открыть в Xcode и запускать оттуда.
+The script creates an optimized arm64 `.app`, relocates Homebrew libraries into `Contents/Frameworks`, creates `RuntimeManifest.plist`, and signs every Mach-O file. The default build uses an ad-hoc signature.
 
-Для чтения и записи `/dev/rdiskN` macOS показывает стандартный запрос пароля администратора.
-
-## Иконка приложения
-
-Редактируемый мастер хранится в `Resources/AppIcon.svg`, а готовая macOS-иконка — в `Resources/AppIcon.icns`. Чтобы заменить ее другим SVG и пересобрать приложение:
+For a distributable build, provide a Developer ID certificate:
 
 ```bash
-zsh scripts/build-icon.sh "/путь/к/новой-иконке.svg"
+CODE_SIGN_IDENTITY="Developer ID Application: Example (TEAMID)" zsh scripts/build-app.sh
+```
+
+To notarize during the build, configure a `notarytool` Keychain profile:
+
+```bash
+CODE_SIGN_IDENTITY="Developer ID Application: Example (TEAMID)" \
+NOTARYTOOL_PROFILE="simple-imager-notary" \
+zsh scripts/build-app.sh
+```
+
+## Image formats
+
+Base extensions are `.img`, `.raw`, and `.dd`. Compression adds another extension, for example `.img.zst`, `.raw.gz`, `.dd.xz`, `.img.bz2`, `.img.lz4`, `.img.zip`, or `.img.7z`.
+
+IMG, RAW, and DD contain the same sector-by-sector drive image and differ only for interoperability. ZIP and 7Z archives must contain exactly one image file. ISO, DMG, BIN, and virtual-machine formats are not supported.
+
+## Application icon
+
+The editable source is `Resources/AppIcon.svg`; the generated macOS icon is `Resources/AppIcon.icns`.
+
+```bash
+zsh scripts/build-icon.sh "/path/to/new-icon.svg"
 zsh scripts/build-app.sh
 ditto ".build/Simple Imager.app" "/Applications/Simple Imager.app"
 ```
 
-Первый скрипт копирует новый SVG в проект и автоматически создает все размеры от 16 до 1024 пикселей. После установки приложение нужно перезапустить; Finder или Dock иногда обновляют закэшированную иконку с небольшой задержкой.
+## Licenses
 
-## Форматы образов
-
-Базовые расширения: `.img`, `.raw`, `.dd`. К ним добавляется расширение выбранного сжатия, например `.img.zst`, `.raw.gz`, `.dd.xz`, `.img.bz2`, `.img.lz4`, `.img.zip` или `.img.7z`.
-
-IMG, RAW и DD в этом приложении содержат один и тот же поблочный образ накопителя и отличаются расширением для совместимости с другими инструментами. ZIP и 7Z должны содержать ровно один файл образа. ISO, DMG, BIN и форматы виртуальных машин не поддерживаются.
-
-При восстановлении размер и SHA-256 вычисляются непосредственно из распакованного потока. Отдельный манифест рядом с образом не требуется и не создается.
-
-Образ по URL сначала скачивается во временный пользовательский файл и проверяется, поэтому сетевой сбой не начинает запись на целевой носитель. Поддерживаются прямые HTTP/HTTPS-ссылки и перенаправления. При клонировании целевой носитель должен быть не меньше исходного; источник открывается только для чтения, а после записи выполняется полная сверка.
+Simple Imager source is currently all rights reserved; see `LICENSE`. Third-party notices and license texts are stored in `Resources/ThirdPartyLicenses` and copied into every app bundle.

@@ -1,0 +1,3 @@
+"CFBundleDisplayName" = "Simple Imager";
+"NSRemovableVolumesUsageDescription" = "Simple Imager needs access to external drives to create and restore images.";
+"NSDesktopFolderUsageDescription" = "Simple Imager needs access to the selected folder to save drive images.";

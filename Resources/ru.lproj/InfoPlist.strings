@@ -1,0 +1,3 @@
+"CFBundleDisplayName" = "Simple Imager";
+"NSRemovableVolumesUsageDescription" = "Приложению нужен доступ к внешним накопителям для создания и восстановления образов.";
+"NSDesktopFolderUsageDescription" = "Приложению нужен доступ к выбранной папке для сохранения образа накопителя.";

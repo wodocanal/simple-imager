@@ -142,11 +142,11 @@ enum NativeExtShrinkSmoke {
         }
         let finalPartition = finalWholeDevice + "s\(finalPlan.partitionIndex + 1)"
         let debugfs = "/opt/homebrew/opt/e2fsprogs/sbin/debugfs"
-        let script = try run(debugfs, ["-R", "cat /usr/local/sbin/sd-archiver-grow-rootfs", finalPartition])
-        guard script.status == 0, script.output.contains("SD_ARCHIVER_AUTOEXPAND") else {
+        let script = try run(debugfs, ["-R", "cat /usr/local/sbin/simple-imager-grow-rootfs", finalPartition])
+        guard script.status == 0, script.output.contains("SIMPLE_IMAGER_AUTOEXPAND") else {
             throw SmokeError.failed("auto-expansion script is missing: \(script.output)")
         }
-        let service = try run(debugfs, ["-R", "cat /etc/systemd/system/sd-archiver-grow-rootfs.service", finalPartition])
+        let service = try run(debugfs, ["-R", "cat /etc/systemd/system/simple-imager-grow-rootfs.service", finalPartition])
         guard service.status == 0, service.output.contains("WantedBy=multi-user.target") else {
             throw SmokeError.failed("auto-expansion service is missing: \(service.output)")
         }

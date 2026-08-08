@@ -25,14 +25,14 @@ enum NativeExtImageShrinker {
     private static let hdiutil = "/usr/bin/hdiutil"
     private static let extendedPartitionTypes: Set<UInt8> = [0x05, 0x0F, 0x85]
     private static let safetyMarginBytes: UInt64 = 64 * 1024 * 1024
-    private static let autoExpandScriptPath = "/usr/local/sbin/sd-archiver-grow-rootfs"
-    private static let autoExpandServicePath = "/etc/systemd/system/sd-archiver-grow-rootfs.service"
-    private static let autoExpandLinkPath = "/etc/systemd/system/multi-user.target.wants/sd-archiver-grow-rootfs.service"
+    private static let autoExpandScriptPath = "/usr/local/sbin/simple-imager-grow-rootfs"
+    private static let autoExpandServicePath = "/etc/systemd/system/simple-imager-grow-rootfs.service"
+    private static let autoExpandLinkPath = "/etc/systemd/system/multi-user.target.wants/simple-imager-grow-rootfs.service"
 
     static var dependencyMessage: String? {
         missingToolNames.isEmpty
             ? nil
-            : "Для уменьшения ext2/3/4 требуется: brew install e2fsprogs"
+            : "Встроенные инструменты ext2/3/4 отсутствуют или повреждены. Переустановите Simple Imager."
     }
 
     static var isAvailable: Bool { dependencyMessage == nil }
@@ -253,18 +253,20 @@ enum NativeExtImageShrinker {
     }
 
     private static func executable(named name: String) -> String? {
-        let candidates = [
-            "/opt/homebrew/opt/e2fsprogs/sbin/\(name)",
-            "/usr/local/opt/e2fsprogs/sbin/\(name)",
-            "/opt/homebrew/bin/\(name)",
-            "/usr/local/bin/\(name)"
-        ]
-        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
+        RuntimeEnvironment.executable(
+            named: name,
+            fallbacks: [
+                "/opt/homebrew/opt/e2fsprogs/sbin/\(name)",
+                "/usr/local/opt/e2fsprogs/sbin/\(name)",
+                "/opt/homebrew/bin/\(name)",
+                "/usr/local/bin/\(name)"
+            ]
+        )
     }
 
     private static func requiredTool(_ name: String) throws -> String {
         guard let executable = executable(named: name) else {
-            throw AppError.invalidArguments("Не найден \(name). Выполните: brew install e2fsprogs")
+            throw AppError.invalidArguments("Не найден встроенный инструмент \(name). Переустановите Simple Imager.")
         }
         return executable
     }
@@ -346,8 +348,8 @@ enum NativeExtImageShrinker {
         )
 
         let identifier = UUID().uuidString
-        let scriptURL = URL(fileURLWithPath: "/tmp/sd-archiver-grow-\(identifier).sh")
-        let serviceURL = URL(fileURLWithPath: "/tmp/sd-archiver-grow-\(identifier).service")
+        let scriptURL = URL(fileURLWithPath: "/tmp/simple-imager-grow-\(identifier).sh")
+        let serviceURL = URL(fileURLWithPath: "/tmp/simple-imager-grow-\(identifier).service")
         try Data(autoExpandScript.utf8).write(to: scriptURL, options: .atomic)
         try Data(autoExpandService.utf8).write(to: serviceURL, options: .atomic)
         defer {
@@ -375,14 +377,14 @@ enum NativeExtImageShrinker {
                 reporter: reporter
             )
             try requireDebugfsCommand(
-                "symlink \(autoExpandLinkPath) ../sd-archiver-grow-rootfs.service",
+                "symlink \(autoExpandLinkPath) ../simple-imager-grow-rootfs.service",
                 on: device,
                 reporter: reporter
             )
 
             guard try debugfsPathExists(autoExpandLinkPath, on: device, reporter: reporter),
                   try debugfsContents(of: autoExpandScriptPath, on: device, reporter: reporter)
-                    .contains("SD_ARCHIVER_AUTOEXPAND") else {
+                    .contains("SIMPLE_IMAGER_AUTOEXPAND") else {
                 throw AppError.commandFailed("Не удалось проверить файлы авторасширения в ext-образе.")
             }
         } catch {
@@ -529,8 +531,8 @@ enum NativeExtImageShrinker {
         }
 
         let identifier = UUID().uuidString
-        let sourceURL = URL(fileURLWithPath: "/tmp/sd-archiver-zero-\(identifier).bin")
-        let temporaryPath = "/.sd-archiver-zero-\(identifier)"
+        let sourceURL = URL(fileURLWithPath: "/tmp/simple-imager-zero-\(identifier).bin")
+        let temporaryPath = "/.simple-imager-zero-\(identifier)"
         try createNonzeroFile(
             at: sourceURL,
             size: geometry.freeBlockCount * geometry.blockSize,
@@ -828,7 +830,7 @@ enum NativeExtImageShrinker {
 
     private static let autoExpandScript = """
     #!/bin/sh
-    # SD_ARCHIVER_AUTOEXPAND
+    # SIMPLE_IMAGER_AUTOEXPAND
     set -eu
 
     ROOT_SOURCE="$(findmnt -n -o SOURCE /)"
@@ -853,22 +855,22 @@ enum NativeExtImageShrinker {
     command -v udevadm >/dev/null 2>&1 && udevadm settle || true
     resize2fs "$ROOT_PART"
 
-    systemctl disable sd-archiver-grow-rootfs.service >/dev/null 2>&1 || true
-    rm -f /etc/systemd/system/multi-user.target.wants/sd-archiver-grow-rootfs.service
-    rm -f /etc/systemd/system/sd-archiver-grow-rootfs.service
-    rm -f /usr/local/sbin/sd-archiver-grow-rootfs
+    systemctl disable simple-imager-grow-rootfs.service >/dev/null 2>&1 || true
+    rm -f /etc/systemd/system/multi-user.target.wants/simple-imager-grow-rootfs.service
+    rm -f /etc/systemd/system/simple-imager-grow-rootfs.service
+    rm -f /usr/local/sbin/simple-imager-grow-rootfs
     systemctl daemon-reload >/dev/null 2>&1 || true
     """
 
     private static let autoExpandService = """
     [Unit]
-    Description=Expand the root filesystem after restoring an SD Archiver image
+    Description=Expand the root filesystem after restoring a Simple Imager image
     After=local-fs.target
-    ConditionPathExists=/usr/local/sbin/sd-archiver-grow-rootfs
+    ConditionPathExists=/usr/local/sbin/simple-imager-grow-rootfs
 
     [Service]
     Type=oneshot
-    ExecStart=/usr/local/sbin/sd-archiver-grow-rootfs
+    ExecStart=/usr/local/sbin/simple-imager-grow-rootfs
 
     [Install]
     WantedBy=multi-user.target

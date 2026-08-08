@@ -26,6 +26,9 @@ enum ImagingHelper {
                   let expectedSizeValue = values["expected-size"],
                   let expectedSize = UInt64(expectedSizeValue),
                   let expectedMediaName = values["expected-media-name"],
+                  let expectedRegistryIDValue = values["expected-registry-id"],
+                  let expectedRegistryID = UInt64(expectedRegistryIDValue),
+                  let expectedRegistryPath = values["expected-registry-path"],
                   let progressPath = values["progress"],
                   let cancelPath = values["cancel"],
                   let rawTypeValue = values["raw-type"],
@@ -45,7 +48,10 @@ enum ImagingHelper {
             let expectedDisk = ExpectedDisk(
                 identifier: device,
                 mediaName: expectedMediaName,
-                size: expectedSize
+                size: expectedSize,
+                registryEntryID: expectedRegistryID,
+                registryPath: expectedRegistryPath,
+                serialNumber: values["expected-serial"].flatMap { $0.isEmpty ? nil : $0 }
             )
 
             switch action {
@@ -85,14 +91,20 @@ enum ImagingHelper {
                     guard let sourceDevice = values["source-device"],
                           let sourceSizeValue = values["source-expected-size"],
                           let sourceSize = UInt64(sourceSizeValue),
-                          let sourceMediaName = values["source-expected-media-name"] else {
+                          let sourceMediaName = values["source-expected-media-name"],
+                          let sourceRegistryIDValue = values["source-expected-registry-id"],
+                          let sourceRegistryID = UInt64(sourceRegistryIDValue),
+                          let sourceRegistryPath = values["source-expected-registry-path"] else {
                         throw AppError.invalidArguments("Не указан исходный носитель для клонирования.")
                     }
                     try cloneDisk(
                         source: ExpectedDisk(
                             identifier: sourceDevice,
                             mediaName: sourceMediaName,
-                            size: sourceSize
+                            size: sourceSize,
+                            registryEntryID: sourceRegistryID,
+                            registryPath: sourceRegistryPath,
+                            serialNumber: values["source-expected-serial"].flatMap { $0.isEmpty ? nil : $0 }
                         ),
                         target: expectedDisk,
                         ejectAfter: ejectAfter,
@@ -139,43 +151,15 @@ enum ImagingHelper {
         guard FileManager.default.fileExists(atPath: parent.path, isDirectory: &isDirectory), isDirectory.boolValue else {
             throw AppError.invalidArguments("Папка для образа не существует.")
         }
+        try ensureTemporaryImageCapacity(in: parent, requiredBytes: disk.size)
 
         var shouldMountDisk = true
         defer {
             if shouldMountDisk { DiskService.mount(disk) }
         }
 
-        let source = try openExpectedDisk(expectedDisk, forWriting: false, reporter: reporter)
-        var sourceIsOpen = true
-        defer {
-            if sourceIsOpen { try? source.close() }
-        }
-
-        let shrinkPlan: ExtShrinkPlan?
-        if mode.shrinksExt {
-            reporter.update(
-                phase: .analyzing,
-                processed: 0,
-                total: disk.size,
-                message: "Проверяем возможность уменьшения ext-раздела…",
-                force: true
-            )
-            shrinkPlan = try NativeExtImageShrinker.analyze(handle: source, diskSize: disk.size)
-        } else {
-            shrinkPlan = nil
-        }
-
-        var compactPlan = CompactPlan(regions: [], rawPartitions: [])
-        if mode.optimizesFreeSpace {
-            reporter.update(phase: .analyzing, processed: 0, total: disk.size, message: "Ищем свободные кластеры FAT32/exFAT…", force: true)
-            compactPlan = CompactImageAnalyzer.buildPlan(handle: source, diskSize: disk.size)
-        }
-        try source.seek(toOffset: 0)
-
         let identifier = UUID().uuidString
-        let captureURL = mode.shrinksExt
-            ? parent.appendingPathComponent(".partial-\(identifier)-source.raw")
-            : parent.appendingPathComponent(".partial-\(identifier)-\(outputURL.lastPathComponent)")
+        let captureURL = parent.appendingPathComponent(".partial-\(identifier)-source.raw")
         let encodedURL = parent.appendingPathComponent(".partial-encoded-\(identifier)-\(outputURL.lastPathComponent)")
         try? FileManager.default.removeItem(at: captureURL)
         try? FileManager.default.removeItem(at: encodedURL)
@@ -184,13 +168,15 @@ enum ImagingHelper {
             try? FileManager.default.removeItem(at: encodedURL)
         }
 
-        let captureCompression: ImageCompression = mode.shrinksExt ? .none : format.compression
-
-        let encoder = try ImageEncoder(
-            compression: captureCompression,
+        let source = try openExpectedDisk(expectedDisk, forWriting: false, reporter: reporter)
+        var sourceIsOpen = true
+        defer {
+            if sourceIsOpen { try? source.close() }
+        }
+        let rawWriter = try ImageEncoder(
+            compression: .none,
             outputURL: captureURL,
-            archiveEntryName: format.archiveEntryName,
-            sparse: mode.shrinksExt || (mode.optimizesFreeSpace && format.compression == .none)
+            archiveEntryName: format.archiveEntryName
         )
 
         var processed: UInt64 = 0
@@ -198,31 +184,22 @@ enum ImagingHelper {
             while processed < disk.size {
                 try reporter.checkCancellation()
                 let amount = min(chunkSize, Int(disk.size - processed))
-                var data = try PosixIO.readBlock(from: source, count: amount)
+                let data = try PosixIO.readBlock(from: source, count: amount)
                 guard !data.isEmpty else {
                     throw AppError.commandFailed("Карта закончилась раньше ожидаемого размера.")
                 }
-                if mode.optimizesFreeSpace {
-                    compactPlan.sanitize(&data, at: processed)
-                }
-                try encoder.write(data)
+                try rawWriter.write(data)
                 processed += UInt64(data.count)
                 reporter.update(
                     phase: .reading,
                     processed: processed,
                     total: disk.size,
-                    message: mode.shrinksExt
-                        ? "Читаем карту во временный образ…"
-                        : (format.compression == .none
-                            ? (mode.optimizesFreeSpace
-                                ? "Читаем карту и создаём разреженный образ…"
-                                : "Читаем карту и сохраняем образ…")
-                            : "Читаем карту и сжимаем образ…")
+                    message: "Копируем носитель во временный RAW-образ…"
                 )
             }
-            try encoder.finish()
+            try rawWriter.finish()
         } catch {
-            encoder.cancel()
+            rawWriter.cancel()
             throw error
         }
 
@@ -230,10 +207,15 @@ enum ImagingHelper {
         sourceIsOpen = false
         DiskService.mount(disk)
 
-        let logicalSize: UInt64
+        var logicalSize = disk.size
         var autoExpandStatus = ExtAutoExpandStatus.notRequested
-        let completedTemporaryURL: URL
-        if let shrinkPlan {
+
+        if mode.shrinksExt {
+            let shrinkPlan = try analyzeShrinkImage(
+                imageURL: captureURL,
+                logicalSize: logicalSize,
+                reporter: reporter
+            )
             let shrinkResult = try NativeExtImageShrinker.shrink(
                 imageURL: captureURL,
                 plan: shrinkPlan,
@@ -242,21 +224,20 @@ enum ImagingHelper {
             )
             logicalSize = shrinkResult.logicalSize
             autoExpandStatus = shrinkResult.autoExpandStatus
-            if format.compression == .none {
-                completedTemporaryURL = captureURL
-            } else {
-                try compressRawImage(
-                    inputURL: captureURL,
-                    outputURL: encodedURL,
-                    logicalSize: logicalSize,
-                    format: format,
-                    reporter: reporter
-                )
-                completedTemporaryURL = encodedURL
-            }
-        } else {
-            logicalSize = disk.size
+        }
+
+        let completedTemporaryURL: URL
+        if format.compression == .none {
             completedTemporaryURL = captureURL
+        } else {
+            try compressRawImage(
+                inputURL: captureURL,
+                outputURL: encodedURL,
+                logicalSize: logicalSize,
+                format: format,
+                reporter: reporter
+            )
+            completedTemporaryURL = encodedURL
         }
 
         reporter.update(phase: .finalizing, processed: logicalSize, total: logicalSize, message: "Сохраняем образ…", force: true)
@@ -274,12 +255,6 @@ enum ImagingHelper {
             case .notRequested:
                 break
             }
-        } else if compactPlan.compactedFileSystems.isEmpty && mode.optimizesFreeSpace {
-            detail = "Образ создан. Поддерживаемые FAT32/exFAT-разделы не найдены, данные сохранены полностью."
-        } else if mode.optimizesFreeSpace,
-                  format.compression == .none,
-                  let allocatedSize = allocatedFileSize(at: outputURL) {
-            detail = "Разреженный образ создан: логически \(formattedSize(disk.size)), на диске \(formattedSize(allocatedSize))."
         } else {
             detail = "Образ сохранён в формате .\(format.fileSuffix)."
         }
@@ -289,6 +264,31 @@ enum ImagingHelper {
         reporter.update(phase: .completed, processed: logicalSize, total: logicalSize, message: detail, force: true)
     }
 
+    private static func analyzeShrinkImage(
+        imageURL: URL,
+        logicalSize: UInt64,
+        reporter: ProgressReporter
+    ) throws -> ExtShrinkPlan {
+        reporter.update(
+            phase: .analyzing,
+            processed: 0,
+            total: logicalSize,
+            message: "Проверяем возможность уменьшения ext-раздела…",
+            force: true
+        )
+        let handle = try FileHandle(forReadingFrom: imageURL)
+        defer { try? handle.close() }
+        let plan = try NativeExtImageShrinker.analyze(handle: handle, diskSize: logicalSize)
+        reporter.update(
+            phase: .analyzing,
+            processed: logicalSize,
+            total: logicalSize,
+            message: "Структура ext-раздела проверена.",
+            force: true
+        )
+        return plan
+    }
+
     private static func compressRawImage(
         inputURL: URL,
         outputURL: URL,
@@ -296,13 +296,19 @@ enum ImagingHelper {
         format: ImageFileFormat,
         reporter: ProgressReporter
     ) throws {
+        reporter.update(
+            phase: .compressing,
+            processed: 0,
+            total: logicalSize,
+            message: "Подготавливаем архивацию в \(format.compression.shortTitle)…",
+            force: true
+        )
         let source = try FileHandle(forReadingFrom: inputURL)
         defer { try? source.close() }
         let encoder = try ImageEncoder(
             compression: format.compression,
             outputURL: outputURL,
-            archiveEntryName: format.archiveEntryName,
-            sparse: false
+            archiveEntryName: format.archiveEntryName
         )
 
         var processed: UInt64 = 0
@@ -317,10 +323,10 @@ enum ImagingHelper {
                 try encoder.write(data)
                 processed += UInt64(data.count)
                 reporter.update(
-                    phase: .finalizing,
+                    phase: .compressing,
                     processed: processed,
                     total: logicalSize,
-                    message: "Сжимаем уменьшенный образ…"
+                    message: "Архивируем обработанный RAW-образ в \(format.compression.shortTitle)…"
                 )
             }
             try encoder.finish()
@@ -344,19 +350,13 @@ enum ImagingHelper {
         }
 
         try reporter.checkCancellation()
-        let inspection = try inspectImage(
+        let materialized = try materializeImage(
             inputURL: inputURL,
             format: format,
+            maximumSize: disk.size,
             reporter: reporter
         )
-        guard inspection.size > 0 else {
-            throw AppError.archiveInvalid("Образ не содержит данных.")
-        }
-        guard inspection.size <= disk.size else {
-            throw AppError.archiveInvalid(
-                "Целевой накопитель меньше образа: нужно минимум \(ByteCountFormatter.string(fromByteCount: Int64(inspection.size), countStyle: .decimal))."
-            )
-        }
+        defer { try? FileManager.default.removeItem(at: materialized.directoryURL) }
 
         try reporter.checkCancellation()
         var shouldMountDisk = true
@@ -367,23 +367,30 @@ enum ImagingHelper {
         // Keep one read/write descriptor open through verification. Closing it between
         // writing and reading gives Disk Arbitration a chance to mount and mutate data.
         let target = try openExpectedDisk(expectedDisk, forWriting: true, reporter: reporter)
+        var writingStarted = false
+        var writeCompleted = false
         do {
+            reporter.update(
+                phase: .writing,
+                processed: 0,
+                total: materialized.size,
+                message: "Записываем подготовленный образ на карту…",
+                force: true
+            )
+            writingStarted = true
             try clearTrailingSignatures(target: target, targetSize: disk.size)
-            let writtenDigest = try writeDecompressedImage(
-                inputURL: inputURL,
+            try writeMaterializedImage(
+                inputURL: materialized.fileURL,
                 target: target,
-                expectedSize: inspection.size,
-                format: format,
+                expectedSize: materialized.size,
                 reporter: reporter
             )
-            guard writtenDigest == inspection.sha256 else {
-                throw AppError.archiveInvalid("Файл образа изменился после предварительной проверки.")
-            }
             try target.synchronize()
+            writeCompleted = true
             let verification = try WrittenMediaVerifier.verify(
                 handle: target,
-                totalSize: inspection.size,
-                expectedSHA256: inspection.sha256,
+                totalSize: materialized.size,
+                expectedSHA256: materialized.sha256,
                 reporter: reporter,
                 message: "Сверяем записанный накопитель…",
                 prematureReadMessage: "Контрольное чтение завершилось преждевременно.",
@@ -393,8 +400,8 @@ enum ImagingHelper {
 
             reporter.update(
                 phase: .finalizing,
-                processed: inspection.size,
-                total: inspection.size,
+                processed: materialized.size,
+                total: materialized.size,
                 message: verification == .skipped
                     ? "Проверка пропущена. Завершаем операцию…"
                     : "Проверка завершена. Завершаем операцию…",
@@ -409,12 +416,15 @@ enum ImagingHelper {
             completionMessage += ejection.messageSuffix
             reporter.update(
                 phase: .completed,
-                processed: inspection.size,
-                total: inspection.size,
+                processed: materialized.size,
+                total: materialized.size,
                 message: completionMessage,
                 force: true
             )
         } catch {
+            if writingStarted, !writeCompleted {
+                invalidateIncompleteWrite(target: target, targetSize: disk.size)
+            }
             try? target.close()
             throw error
         }
@@ -462,7 +472,17 @@ enum ImagingHelper {
 
         var sourceHasher = SHA256()
         var processed: UInt64 = 0
+        var writingStarted = false
+        var writeCompleted = false
         do {
+            reporter.update(
+                phase: .writing,
+                processed: 0,
+                total: sourceDisk.size,
+                message: "Клонируем носитель…",
+                force: true
+            )
+            writingStarted = true
             try clearTrailingSignatures(target: target, targetSize: targetDisk.size)
             while processed < sourceDisk.size {
                 try reporter.checkCancellation()
@@ -483,7 +503,11 @@ enum ImagingHelper {
             }
             try source.close()
             try target.synchronize()
+            writeCompleted = true
         } catch {
+            if writingStarted, !writeCompleted {
+                invalidateIncompleteWrite(target: target, targetSize: targetDisk.size)
+            }
             try? target.close()
             try? source.close()
             throw error
@@ -649,61 +673,95 @@ enum ImagingHelper {
     private static func validate(_ disk: DiskInfo, matches expected: ExpectedDisk) throws {
         guard disk.identifier == expected.identifier,
               disk.size == expected.size,
-              disk.mediaName == expected.mediaName else {
+              disk.mediaName == expected.mediaName,
+              disk.registryEntryID == expected.registryEntryID,
+              disk.registryPath == expected.registryPath,
+              expected.serialNumber == nil || disk.serialNumber == expected.serialNumber else {
             throw AppError.unsafeDisk(
                 "После переподключения под именем \(expected.identifier) обнаружен другой накопитель. Обновите список и выберите карту заново."
             )
         }
     }
 
-    private static func inspectImage(
+    private static func materializeImage(
         inputURL: URL,
         format: ImageFileFormat,
+        maximumSize: UInt64,
         reporter: ProgressReporter
-    ) throws -> ImageInspection {
+    ) throws -> MaterializedImage {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("simple-imager-materialized-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: false,
+            attributes: [.posixPermissions: 0o700]
+        )
+        let rawURL = directoryURL.appendingPathComponent("image.raw")
+        guard FileManager.default.createFile(atPath: rawURL.path, contents: nil) else {
+            try? FileManager.default.removeItem(at: directoryURL)
+            throw AppError.commandFailed("Не удалось создать временный RAW-образ.")
+        }
+        let output = try FileHandle(forWritingTo: rawURL)
         var hasher = SHA256()
         var count: UInt64 = 0
-        let uncompressedSize = format.compression == .none
-            ? ((try? FileManager.default.attributesOfItem(atPath: inputURL.path)[.size] as? NSNumber)?.uint64Value ?? 0)
-            : 0
-
-        try streamDecoded(inputURL: inputURL, format: format, reporter: reporter) { data in
-            count += UInt64(data.count)
-            hasher.update(data: data)
-            reporter.update(
-                phase: .verifyingArchive,
-                processed: count,
-                total: uncompressedSize,
-                message: "Проверяем образ и определяем его размер…"
-            )
+        do {
+            try streamDecoded(inputURL: inputURL, format: format, reporter: reporter) { data in
+                let dataSize = UInt64(data.count)
+                guard dataSize <= maximumSize - count else {
+                    throw AppError.archiveInvalid(
+                        "Распакованный образ больше целевого накопителя размером \(formattedSize(maximumSize))."
+                    )
+                }
+                try PosixIO.writeAll(data, to: output)
+                count += dataSize
+                hasher.update(data: data)
+                reporter.update(
+                    phase: .verifyingArchive,
+                    processed: count,
+                    total: 0,
+                    message: "Распаковываем образ во временный RAW и вычисляем SHA-256…"
+                )
+            }
+            guard count > 0 else {
+                throw AppError.archiveInvalid("Образ не содержит данных.")
+            }
+            try output.synchronize()
+            try output.close()
+        } catch {
+            try? output.close()
+            try? FileManager.default.removeItem(at: directoryURL)
+            throw error
         }
         let digest = hasher.finalize().map { String(format: "%02x", $0) }.joined()
-        return ImageInspection(size: count, sha256: digest)
+        return MaterializedImage(
+            directoryURL: directoryURL,
+            fileURL: rawURL,
+            size: count,
+            sha256: digest
+        )
     }
 
-    private static func writeDecompressedImage(
+    private static func writeMaterializedImage(
         inputURL: URL,
         target: FileHandle,
         expectedSize: UInt64,
-        format: ImageFileFormat,
         reporter: ProgressReporter
-    ) throws -> String {
+    ) throws {
         try target.seek(toOffset: 0)
+        let source = try FileHandle(forReadingFrom: inputURL)
+        defer { try? source.close() }
         var written: UInt64 = 0
-        var hasher = SHA256()
-        try streamDecoded(inputURL: inputURL, format: format, reporter: reporter) { data in
-            written += UInt64(data.count)
-            guard written <= expectedSize else {
-                throw AppError.archiveInvalid("Образ неожиданно превышает заявленный размер.")
+        while written < expectedSize {
+            try reporter.checkCancellation()
+            let amount = min(chunkSize, Int(expectedSize - written))
+            let data = try PosixIO.readBlock(from: source, count: amount)
+            guard !data.isEmpty else {
+                throw AppError.archiveInvalid("Временный RAW-образ завершился раньше ожидаемого размера.")
             }
             try PosixIO.writeAll(data, to: target)
-            hasher.update(data: data)
+            written += UInt64(data.count)
             reporter.update(phase: .writing, processed: written, total: expectedSize, message: "Записываем образ на карту…")
         }
-        guard written == expectedSize else {
-            throw AppError.archiveInvalid("На карту записан неполный образ.")
-        }
-        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     private static func streamDecoded(
@@ -733,7 +791,7 @@ enum ImagingHelper {
 
         let process = Process()
         let output = Pipe()
-        let errorPipe = Pipe()
+        let errorOutput = try TemporaryProcessOutput(prefix: "decoder")
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = decoderArguments(
             compression: format.compression,
@@ -741,7 +799,7 @@ enum ImagingHelper {
             inputURL: inputURL
         )
         process.standardOutput = output
-        process.standardError = errorPipe
+        process.standardError = errorOutput.handle
         try process.run()
 
         do {
@@ -759,25 +817,25 @@ enum ImagingHelper {
         }
 
         guard process.terminationStatus == 0 else {
-            let details = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            let details = String(data: try errorOutput.read(), encoding: .utf8) ?? ""
             throw AppError.archiveInvalid("\(format.compression.title) не смог распаковать образ. \(details)")
         }
     }
 
     private static func validateSingleFileArchive(_ inputURL: URL) throws {
         let process = Process()
-        let output = Pipe()
-        let errorPipe = Pipe()
+        let output = try TemporaryProcessOutput(prefix: "archive-list")
+        let errorOutput = try TemporaryProcessOutput(prefix: "archive-error")
         process.executableURL = URL(fileURLWithPath: "/usr/bin/bsdtar")
         process.arguments = ["-tf", inputURL.path]
-        process.standardOutput = output
-        process.standardError = errorPipe
+        process.standardOutput = output.handle
+        process.standardError = errorOutput.handle
         try process.run()
-        let listingData = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
+        let listingData = try output.read()
 
         guard process.terminationStatus == 0 else {
-            let details = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            let details = String(data: try errorOutput.read(), encoding: .utf8) ?? ""
             throw AppError.archiveInvalid("Не удалось прочитать структуру архива. \(details)")
         }
         let listing = String(data: listingData, encoding: .utf8) ?? ""
@@ -862,17 +920,19 @@ enum ImagingHelper {
         try target.seek(toOffset: 0)
     }
 
+    private static func invalidateIncompleteWrite(target: FileHandle, targetSize: UInt64) {
+        let amount = min(UInt64(chunkSize), targetSize)
+        guard amount > 0 else { return }
+        try? target.seek(toOffset: 0)
+        try? PosixIO.writeAll(Data(repeating: 0, count: Int(amount)), to: target)
+        try? target.synchronize()
+    }
+
     private static func replaceItem(at destination: URL, with temporary: URL) throws {
         if FileManager.default.fileExists(atPath: destination.path) {
             try FileManager.default.removeItem(at: destination)
         }
         try FileManager.default.moveItem(at: temporary, to: destination)
-    }
-
-    private static func allocatedFileSize(at url: URL) -> UInt64? {
-        var information = stat()
-        guard lstat(url.path, &information) == 0 else { return nil }
-        return UInt64(information.st_blocks) * 512
     }
 
     private static func formattedSize(_ size: UInt64) -> String {
@@ -890,12 +950,47 @@ enum ImagingHelper {
 
     private static func ensureDestinationIsNot(on source: DiskInfo, outputURL: URL) throws {
         let parentPath = outputURL.deletingLastPathComponent().path
-        guard let data = try? CommandRunner.requireSuccess("/usr/sbin/diskutil", ["info", "-plist", parentPath]),
-              let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
-              let values = plist as? [String: Any] else { return }
-        let parentDisk = values["ParentWholeDisk"] as? String ?? values["DeviceIdentifier"] as? String
+        let data: Data
+        do {
+            data = try CommandRunner.requireSuccess("/usr/sbin/diskutil", ["info", "-plist", parentPath])
+        } catch {
+            throw AppError.unsafeDisk(
+                "Не удалось безопасно определить накопитель папки назначения. Выберите другую папку и повторите попытку. \(error.localizedDescription)"
+            )
+        }
+        guard let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
+              let values = plist as? [String: Any] else {
+            throw AppError.unsafeDisk("diskutil вернул неизвестные свойства папки назначения.")
+        }
+        let reportedDisk = values["ParentWholeDisk"] as? String ?? values["DeviceIdentifier"] as? String
+        guard let reportedDisk,
+              let parentDisk = wholeDiskIdentifier(from: reportedDisk) else {
+            throw AppError.unsafeDisk("Не удалось определить физический диск папки назначения.")
+        }
         if parentDisk == source.identifier {
             throw AppError.unsafeDisk("Нельзя сохранять образ на ту же карту, которую приложение будет размонтировать.")
+        }
+    }
+
+    private static func wholeDiskIdentifier(from value: String) -> String? {
+        guard let range = value.range(of: #"^disk[0-9]+"#, options: .regularExpression) else { return nil }
+        return String(value[range])
+    }
+
+    private static func ensureTemporaryImageCapacity(
+        in directory: URL,
+        requiredBytes: UInt64
+    ) throws {
+        var information = statfs()
+        guard statfs(directory.path, &information) == 0 else { return }
+        let blockSize = UInt64(information.f_bsize)
+        let availableBlocks = UInt64(information.f_bavail)
+        guard blockSize == 0 || availableBlocks <= UInt64.max / blockSize else { return }
+        let availableBytes = availableBlocks * blockSize
+        guard availableBytes >= requiredBytes else {
+            throw AppError.invalidArguments(
+                "Недостаточно места для промежуточного RAW-образа. Нужно не менее \(formattedSize(requiredBytes)), доступно \(formattedSize(availableBytes))."
+            )
         }
     }
 
@@ -922,26 +1017,61 @@ enum ImagingHelper {
         }
     }
 
+    private final class TemporaryProcessOutput {
+        let handle: FileHandle
+        private let directoryURL: URL
+        private let fileURL: URL
+        private var isClosed = false
+
+        init(prefix: String) throws {
+            directoryURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("simple-imager-\(prefix)-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(
+                at: directoryURL,
+                withIntermediateDirectories: false,
+                attributes: [.posixPermissions: 0o700]
+            )
+            fileURL = directoryURL.appendingPathComponent("output")
+            guard FileManager.default.createFile(atPath: fileURL.path, contents: nil) else {
+                try? FileManager.default.removeItem(at: directoryURL)
+                throw AppError.commandFailed("Не удалось создать временный файл вывода процесса.")
+            }
+            handle = try FileHandle(forWritingTo: fileURL)
+        }
+
+        func read() throws -> Data {
+            try close()
+            return try Data(contentsOf: fileURL)
+        }
+
+        func close() throws {
+            guard !isClosed else { return }
+            try handle.close()
+            isClosed = true
+        }
+
+        deinit {
+            try? close()
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+    }
+
     private final class ImageEncoder {
         private let compression: ImageCompression
-        private let sparse: Bool
         private var directHandle: FileHandle?
         private var process: Process?
         private var processInput: FileHandle?
-        private var errorPipe: Pipe?
+        private var errorOutput: TemporaryProcessOutput?
         private var outputHandle: FileHandle?
         private var nullHandle: FileHandle?
-        private var sparseRanges: [SparseRange] = []
         private var finished = false
 
         init(
             compression: ImageCompression,
             outputURL: URL,
-            archiveEntryName: String,
-            sparse: Bool
+            archiveEntryName: String
         ) throws {
             self.compression = compression
-            self.sparse = sparse
 
             if compression == .none {
                 guard FileManager.default.createFile(atPath: outputURL.path, contents: nil) else {
@@ -957,7 +1087,7 @@ enum ImagingHelper {
 
             let process = Process()
             let inputPipe = Pipe()
-            let errorPipe = Pipe()
+            let errorOutput = try TemporaryProcessOutput(prefix: "encoder")
             process.executableURL = URL(fileURLWithPath: executable)
             process.arguments = ImagingHelper.encoderArguments(
                 compression: compression,
@@ -965,7 +1095,7 @@ enum ImagingHelper {
                 archiveEntryName: archiveEntryName
             )
             process.standardInput = inputPipe
-            process.standardError = errorPipe
+            process.standardError = errorOutput.handle
 
             if ImagingHelper.codecWritesToStandardOutput(compression) {
                 guard FileManager.default.createFile(atPath: outputURL.path, contents: nil) else {
@@ -982,7 +1112,7 @@ enum ImagingHelper {
 
             self.process = process
             self.processInput = inputPipe.fileHandleForWriting
-            self.errorPipe = errorPipe
+            self.errorOutput = errorOutput
             try process.run()
         }
 
@@ -991,12 +1121,7 @@ enum ImagingHelper {
                 throw AppError.commandFailed("Поток образа уже закрыт.")
             }
             if let directHandle {
-                if sparse {
-                    let result = try PosixIO.writeSparse(data, to: directHandle)
-                    for range in result.ranges { appendSparseRange(range) }
-                } else {
-                    try PosixIO.writeAll(data, to: directHandle)
-                }
+                try PosixIO.writeAll(data, to: directHandle)
             } else if let processInput {
                 try PosixIO.writeAll(data, to: processInput)
             } else {
@@ -1008,7 +1133,6 @@ enum ImagingHelper {
             guard !finished else { return }
 
             if let directHandle {
-                if sparse { try PosixIO.finalizeSparseFile(directHandle, ranges: sparseRanges) }
                 try directHandle.synchronize()
                 try directHandle.close()
                 self.directHandle = nil
@@ -1027,11 +1151,13 @@ enum ImagingHelper {
             finished = true
 
             guard process?.terminationStatus == 0 else {
-                let details = errorPipe.map {
-                    String(data: $0.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                let details = try errorOutput.map {
+                    String(data: try $0.read(), encoding: .utf8) ?? ""
                 } ?? ""
                 throw AppError.commandFailed("\(compression.title) не смог создать образ. \(details)")
             }
+            try errorOutput?.close()
+            errorOutput = nil
         }
 
         func cancel() {
@@ -1042,24 +1168,13 @@ enum ImagingHelper {
             process?.waitUntilExit()
             try? outputHandle?.close()
             try? nullHandle?.close()
+            try? errorOutput?.close()
             directHandle = nil
             processInput = nil
             outputHandle = nil
             nullHandle = nil
+            errorOutput = nil
             finished = true
-        }
-
-        private func appendSparseRange(_ range: SparseRange) {
-            guard let previous = sparseRanges.last,
-                  previous.offset + previous.length >= range.offset else {
-                sparseRanges.append(range)
-                return
-            }
-            let end = max(previous.offset + previous.length, range.offset + range.length)
-            sparseRanges[sparseRanges.count - 1] = SparseRange(
-                offset: previous.offset,
-                length: end - previous.offset
-            )
         }
 
         deinit {
@@ -1067,7 +1182,9 @@ enum ImagingHelper {
         }
     }
 
-    private struct ImageInspection {
+    private struct MaterializedImage {
+        let directoryURL: URL
+        let fileURL: URL
         let size: UInt64
         let sha256: String
     }
@@ -1076,5 +1193,8 @@ enum ImagingHelper {
         let identifier: String
         let mediaName: String
         let size: UInt64
+        let registryEntryID: UInt64
+        let registryPath: String
+        let serialNumber: String?
     }
 }
